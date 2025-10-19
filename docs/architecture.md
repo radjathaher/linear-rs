@@ -25,7 +25,7 @@ linear-rs/
 - **Token store** – Persists encrypted credentials in `$XDG_CONFIG_HOME/linear-rs/credentials.json` (or platform-specific directories). Prefer `keyring` for secure storage when available; fall back to filesystem with `chmod 600`.
 - **GraphQL client** – Async wrapper around `reqwest` + `graphql_client` (or `cynic`) with request middleware for headers, retries, rate limiting, and structured error handling per GraphQL spec.citeturn2search0
 - **Domain layer** – Strongly-typed service objects (e.g., `IssuesService`, `ProjectsService`) that expose ergonomic operations and hide pagination/connection details. Supports actor-scoped mutations via `actor=user/app` flags.citeturn1search6
-- **Domain layer** – Strongly-typed service objects (e.g., `IssuesService`, `ProjectsService`) that expose ergonomic operations and hide pagination/connection details. Supports actor-scoped mutations via `actor=user/app` flags.citeturn1search6 `IssuesService` now wraps GraphQL issue queries with filter helpers so front-ends can request lists by team, state, assignee, or labels without crafting raw filters.
+- **Domain layer** – Strongly-typed service objects (e.g., `IssuesService`, `ProjectsService`) that expose ergonomic operations and hide pagination/connection details. Supports actor-scoped mutations via `actor=user/app` flags.citeturn1search6 `IssuesService` now wraps GraphQL issue queries with filter helpers so front-ends can request lists by team, state, assignee, labels, or title substring matches without crafting raw filters.
 - **Configuration** – Loads workspace defaults (team filters, default view presets, UI preferences) and user profiles to enable multi-workspace switching.
 - **Event pipeline** – Optional module for webhook ingestion or polling diffs to keep local caches in sync.
 
@@ -50,7 +50,7 @@ linear-rs/
   - Center: issues/projects list with infinite scroll (paginated via connection cursors).
   - Right panel: detail view with markdown rendering (using `tui-markdown` or custom viewer).
 - Bottom command palette for quick actions (`:` to open, `?` for help).
-- Command palette doubles as a command entry surface with history (↑/↓), supporting commands like `team <key>`, `state <name>`, and `clear`; overlay echoes live input in the footer and shows recent history.
+- Command palette doubles as a command entry surface with history (↑/↓), supporting commands like `team <key>`, `state <name>`, `contains <text|clear>`, and `clear`; overlay echoes live input in the footer and shows recent history.
 - Async runtime (Tokio) plus `tokio::sync::mpsc` channel to integrate network calls without blocking the draw loop.
 - Shares state management primitives (e.g., `AppContext`) with CLI to ensure consistent caching and authorization behavior.
 - Initial scaffold fetches recent issues for the default profile using `IssueService`, renders them in a selectable list with keyboard navigation (`j/k`, arrows), shows team/state sidebars (`tab` to change focus, `t` cycle teams, `s` cycle states), supports a `:` command palette with history (↑/↓), refresh (`r`), and quit (`q`).

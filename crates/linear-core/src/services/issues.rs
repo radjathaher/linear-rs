@@ -143,10 +143,7 @@ impl IssueQueryOptions {
         }
 
         if let Some(search) = self.title_contains {
-            filter.insert(
-                "title".into(),
-                json!({ "contains": search }),
-            );
+            filter.insert("title".into(), json!({ "contains": search }));
         }
 
         let filter = if filter.is_empty() {
@@ -198,6 +195,7 @@ mod tests {
             assignee_id: Some("user-1".into()),
             state_id: Some("state-1".into()),
             label_ids: vec!["label-1".into(), "label-2".into()],
+            title_contains: Some("bug".into()),
         };
 
         let params = options.into_params();
@@ -206,5 +204,6 @@ mod tests {
         assert_eq!(filter["team"]["key"]["eq"], "ENG");
         assert_eq!(filter["assignee"]["id"]["eq"], "user-1");
         assert_eq!(filter["labels"]["id"]["in"].as_array().unwrap().len(), 2);
+        assert_eq!(filter["title"]["contains"], "bug");
     }
 }

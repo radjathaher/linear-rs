@@ -173,6 +173,7 @@ struct App {
     palette_input: String,
     palette_history: Vec<String>,
     palette_history_index: Option<usize>,
+    title_contains: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -203,6 +204,7 @@ impl App {
             palette_input: String::new(),
             palette_history: Vec::new(),
             palette_history_index: None,
+            title_contains: None,
         }
     }
 
@@ -237,10 +239,21 @@ impl App {
         self.abort_pending();
         self.ensure_teams().await;
         self.ensure_states().await;
+        self.load_issues_with_filters().await;
+    }
+
+    fn current_contains(&self) -> Option<String> {
+        self.title_contains.clone()
+    }
+
+    async fn load_issues_with_filters(&mut self) {
+        self.abort_pending();
+        let contains = self.current_contains();
         match fetch_issue_summaries(
             &self.service,
             self.current_team_id(),
             self.current_state_id(),
+            contains,
         )
         .await
         {
@@ -277,6 +290,10 @@ impl App {
         }
     }
 
+    async fn load_issues_with_contains(&mut self, contains: Option<String>) {
+        self.title_contains = contains;
+        self.load_issues_with_filters().await;
+    }
     async fn move_issue_selection(&mut self, delta: isize) {
         if self.issues.is_empty() {
             return;
@@ -335,7 +352,7 @@ impl App {
         self.states_team_id = None;
         let team_label = self.current_team_label();
         self.set_status(format!("Switched to team: {}", team_label), false);
-        self.load_issues().await;
+        self.load_issues_with_filters().await;
     }
 
     fn current_team_id(&self) -> Option<String> {
@@ -403,7 +420,7 @@ impl App {
             .map(|state| state.name.clone())
             .unwrap_or_else(|| "All".into());
         self.set_status(format!("State filter: {}", state_label), false);
-        self.load_issues().await;
+        self.load_issues_with_filters().await;
     }
 
     fn current_state_id(&self) -> Option<String> {
@@ -448,10 +465,18 @@ impl App {
                 }
                 lines
             }
+        } else if let Some(rest) = input.strip_prefix("contains ") {
+            let term = rest.trim();
+            if term.is_empty() {
+                vec![Line::from("contains <text>")]
+            } else {
+                vec![Line::from(format!("contains {}", term))]
+            }
         } else {
             vec![
                 Line::from("team <key>"),
                 Line::from("state <name>"),
+                Line::from("contains <text>"),
                 Line::from("clear"),
                 Line::from("reload"),
             ]
@@ -511,8 +536,8 @@ impl App {
                 self.palette_history.push(cmd.to_string());
             }
         }
-        if cmd.starts_with("team ") {
-            let team_key = cmd.trim_start_matches("team ").trim();
+        if let Some(team_key) = cmd.strip_prefix("team ") {
+            let team_key = team_key.trim();
             self.ensure_teams().await;
             self.team_index = self
                 .teams
@@ -525,10 +550,13 @@ impl App {
                 self.state_index = None;
                 self.states_team_id = None;
                 self.set_status(format!("Command: team {}", team_key), false);
-                self.load_issues().await;
+                self.load_issues_with_filters().await;
             }
-        } else if cmd.starts_with("state ") {
-            let state_name = cmd.trim_start_matches("state ").trim();
+            return;
+        }
+
+        if let Some(state_name) = cmd.strip_prefix("state ") {
+            let state_name = state_name.trim();
             self.ensure_states().await;
             if self.states.is_empty() {
                 self.set_status("Load a team with workflow states first", false);
@@ -541,28 +569,48 @@ impl App {
                     self.set_status(format!("State '{}' not found", state_name), false);
                 } else {
                     self.set_status(format!("Command: state {}", state_name), false);
-                    self.load_issues().await;
+                    self.load_issues_with_filters().await;
                 }
             }
-        } else if cmd == "clear" {
-            self.team_index = None;
-            self.state_index = None;
-            self.states_team_id = None;
-            self.states.clear();
-            self.set_status("Cleared filters", false);
-            self.load_issues().await;
-        } else if cmd == "reload" {
-            self.teams.clear();
-            self.team_index = None;
-            self.states.clear();
-            self.state_index = None;
-            self.states_team_id = None;
-            self.set_status("Reloading metadata", true);
-            self.load_issues().await;
-        } else if !cmd.is_empty() {
-            self.set_status(format!("Unknown command: {}", cmd), false);
-        } else {
-            self.set_status("Command mode exited", false);
+            return;
+        }
+
+        if let Some(term) = cmd.strip_prefix("contains ") {
+            let term = term.trim();
+            if term.is_empty() {
+                self.set_status("Usage: contains <term>", false);
+            } else if term.eq_ignore_ascii_case("clear") {
+                self.set_status("Cleared title filter", false);
+                self.load_issues_with_contains(None).await;
+            } else {
+                self.set_status(format!("Title contains '{}'", term), false);
+                self.load_issues_with_contains(Some(term.to_string())).await;
+            }
+            return;
+        }
+
+        match cmd {
+            "" => self.set_status("Command mode exited", false),
+            "clear" => {
+                self.team_index = None;
+                self.state_index = None;
+                self.states_team_id = None;
+                self.states.clear();
+                self.title_contains = None;
+                self.set_status("Cleared filters", false);
+                self.load_issues().await;
+            }
+            "reload" => {
+                self.teams.clear();
+                self.team_index = None;
+                self.states.clear();
+                self.state_index = None;
+                self.states_team_id = None;
+                self.set_status("Reloading metadata", true);
+                self.load_issues().await;
+            }
+            "contains" => self.set_status("Usage: contains <term>", false),
+            _ => self.set_status(format!("Unknown command: {}", cmd), false),
         }
     }
 }
@@ -571,6 +619,7 @@ async fn fetch_issue_summaries(
     service: &IssueService,
     team_id: Option<String>,
     state_id: Option<String>,
+    contains: Option<String>,
 ) -> Result<(
     Vec<linear_core::graphql::IssueSummary>,
     Option<linear_core::graphql::IssueDetail>,
@@ -580,6 +629,7 @@ async fn fetch_issue_summaries(
             limit: 20,
             team_id,
             state_id,
+            title_contains: contains,
             ..Default::default()
         })
         .await
@@ -719,7 +769,7 @@ fn render_app(frame: &mut Frame, app: &App) {
         .split(right_chunks[3]);
 
     let help = Paragraph::new(
-        "Commands: r=refresh  tab=focus  j/k=move  t=team  s=state  :=command  q=quit",
+        "Commands: r=refresh  tab=focus  j/k=move  t=team  s=state  :team/:state/:contains  q=quit",
     )
     .style(Style::default());
     frame.render_widget(help, help_chunks[0]);
