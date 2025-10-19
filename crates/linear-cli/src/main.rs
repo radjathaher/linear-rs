@@ -77,9 +77,18 @@ struct IssueListArgs {
     /// Filter by team key (e.g. ENG)
     #[arg(long = "team-key")]
     team_key: Option<String>,
+    /// Filter by team id (if known)
+    #[arg(long = "team-id")]
+    team_id: Option<String>,
+    /// Filter by team key/slug/id (resolved automatically)
+    #[arg(long = "team")]
+    team: Option<String>,
     /// Filter by state id
     #[arg(long = "state-id")]
     state_id: Option<String>,
+    /// Filter by state name (requires team context)
+    #[arg(long = "state")]
+    state: Option<String>,
     /// Filter by assignee id
     #[arg(long = "assignee-id")]
     assignee_id: Option<String>,
@@ -374,13 +383,42 @@ async fn issue_list(args: IssueListArgs) -> Result<()> {
     let client =
         LinearGraphqlClient::from_session(&session).context("failed to build GraphQL client")?;
     let service = IssueService::new(client);
-    let options = IssueQueryOptions {
+    let mut options = IssueQueryOptions {
         limit: args.limit,
         team_key: args.team_key.clone(),
+        team_id: args.team_id.clone(),
         assignee_id: args.assignee_id.clone(),
         state_id: args.state_id.clone(),
         label_ids: args.label_ids.clone(),
     };
+
+    if options.team_id.is_none() {
+        if let Some(team_input) = args.team.clone() {
+            options.team_id = Some(
+                service
+                    .resolve_team_id(&team_input)
+                    .await?
+                    .ok_or_else(|| anyhow!("team '{}' not found", team_input))?,
+            );
+            options.team_key = None;
+        } else if let Some(team_id) = args.team_id.clone() {
+            options.team_id = Some(team_id);
+        }
+    }
+
+    if let Some(state_name) = args.state.clone() {
+        let team_id = options
+            .team_id
+            .as_ref()
+            .ok_or_else(|| anyhow!("--state requires --team/--team-id to resolve workflow"))?;
+        options.state_id = Some(
+            service
+                .resolve_state_id(team_id, &state_name)
+                .await?
+                .ok_or_else(|| anyhow!("state '{}' not found for team", state_name))?,
+        );
+    }
+
     let issues = service
         .list(options)
         .await

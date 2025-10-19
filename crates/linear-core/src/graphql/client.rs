@@ -97,6 +97,107 @@ impl LinearGraphqlClient {
         Ok(data.viewer)
     }
 
+    /// Fetch all teams accessible to the session.
+    pub async fn teams(&self) -> GraphqlResult<Vec<TeamSummary>> {
+        #[derive(Serialize)]
+        struct Request<'a> {
+            query: &'a str,
+        }
+
+        #[derive(Deserialize)]
+        struct TeamsEnvelope {
+            teams: TeamConnection,
+        }
+
+        #[derive(Deserialize)]
+        struct TeamConnection {
+            nodes: Vec<TeamSummary>,
+        }
+
+        const QUERY: &str = r#"
+            query TeamsQuery {
+                teams {
+                    nodes {
+                        id
+                        name
+                        key
+                        slugId
+                    }
+                }
+            }
+        "#;
+
+        let response: GraphqlEnvelope<TeamsEnvelope> = self.post(Request { query: QUERY }).await?;
+
+        if let Some(errors) = response.errors {
+            return Err(GraphqlError::ResponseErrors(errors));
+        }
+
+        let data = response.data.ok_or(GraphqlError::NotFound)?;
+        Ok(data.teams.nodes)
+    }
+
+    /// Fetch workflow states for a team.
+    pub async fn workflow_states(&self, team_id: &str) -> GraphqlResult<Vec<WorkflowStateSummary>> {
+        #[derive(Serialize)]
+        struct Variables<'a> {
+            team_id: &'a str,
+        }
+
+        #[derive(Serialize)]
+        struct Request<'a> {
+            query: &'a str,
+            variables: Variables<'a>,
+        }
+
+        #[derive(Deserialize)]
+        struct WorkflowEnvelope {
+            team: Option<TeamWorkflowStates>,
+        }
+
+        #[derive(Deserialize)]
+        struct TeamWorkflowStates {
+            states: WorkflowStateConnection,
+        }
+
+        #[derive(Deserialize)]
+        struct WorkflowStateConnection {
+            nodes: Vec<WorkflowStateSummary>,
+        }
+
+        const QUERY: &str = r#"
+            query WorkflowStates($team_id: String!) {
+                team(id: $team_id) {
+                    states {
+                        nodes {
+                            id
+                            name
+                            type
+                        }
+                    }
+                }
+            }
+        "#;
+
+        let response: GraphqlEnvelope<WorkflowEnvelope> = self
+            .post(Request {
+                query: QUERY,
+                variables: Variables { team_id },
+            })
+            .await?;
+
+        if let Some(errors) = response.errors {
+            return Err(GraphqlError::ResponseErrors(errors));
+        }
+
+        let team = response
+            .data
+            .and_then(|payload| payload.team)
+            .ok_or(GraphqlError::NotFound)?;
+
+        Ok(team.states.nodes)
+    }
+
     /// Fetch a list of recent issues.
     pub async fn list_issues(&self, params: IssueListParams) -> GraphqlResult<Vec<IssueSummary>> {
         #[derive(Serialize)]
@@ -312,6 +413,22 @@ pub struct IssueLabel {
     pub id: String,
     pub name: String,
     pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamSummary {
+    pub id: String,
+    pub name: String,
+    pub key: String,
+    pub slug_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowStateSummary {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub type_name: Option<String>,
 }
 
 #[derive(Debug, Clone)]
