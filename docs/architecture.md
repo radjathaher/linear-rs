@@ -86,8 +86,19 @@ linear-rs/
 - Provide example configuration file under `examples/linear.toml`.
 
 ## Next Steps
-1. Scaffold workspace: initialize crates and shared dependencies, wire up `cargo xtask codegen`.
-2. Implement credential store abstraction and OAuth login command (CLI only) with browser + manual fallback.
-3. Build minimal GraphQL client supporting `viewer` query; verify with integration test using recorded schema.
-4. Flesh out CLI commands for issue listing/views; iterate on output formatting.
-5. Prototype TUI layout with mocked data, then integrate live data once GraphQL services stabilize.
+1. Scaffold workspace: create `Cargo.toml` workspace, stub crates, and wire `cargo xtask codegen`.
+2. Implement shared auth module in `linear-core`:
+   - Browser PKCE flow with loopback server.
+   - Manual/no-browser fallback (print URL, paste code).
+   - Investigate feasibility of device-code style flow; document fallback to PKCE if Linear continues to lack native support.
+   - Token refresh + persistence (config/credential store).
+   - Auto-detect preferred flow based on environment (`$DISPLAY`, TTY).
+3. Stand up GraphQL client wrappers and schema codegen; cover `viewer` + issue list queries with mocked integration tests.
+4. Build initial `linear-cli` commands: `auth login`, `issue list`, `issue view <id>`, `issue create`.
+5. Prototype `linear-tui` core loop: app skeleton, issue list panel, detail panel, key bindings (`j/k`, `/`, `q`).
+6. Expand testing + docs: CLI help audit, README quickstart, developer docs, and ensure integration test coverage.
+7. Push changes to `github.com/radjathaher/linear-rs` after each atomic milestone.
+
+## Open Questions
+- What rate limiting/backoff strategy best aligns with Linear’s API quotas?
+- Do we need offline caching or sync primitives for working without connectivity?
