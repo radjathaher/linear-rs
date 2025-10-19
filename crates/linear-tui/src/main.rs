@@ -31,7 +31,12 @@ async fn async_main() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = App::new();
+    let session = load_session(DEFAULT_PROFILE).await?;
+    let client = LinearGraphqlClient::from_session(&session)
+        .context("failed to build GraphQL client")?;
+    let service = IssueService::new(client);
+
+    let mut app = App::new(service.clone());
     app.load_issues().await;
 
     let result = run_app(&mut terminal, &mut app).await;
@@ -95,6 +100,7 @@ async fn run_app<B: ratatui::backend::Backend>(
 }
 
 struct App {
+    service: IssueService,
     issues: Vec<linear_core::graphql::IssueSummary>,
     detail: Option<linear_core::graphql::IssueDetail>,
     status: String,
@@ -103,8 +109,9 @@ struct App {
 }
 
 impl App {
-    fn new() -> Self {
+    fn new(service: IssueService) -> Self {
         Self {
+            service,
             issues: Vec::new(),
             detail: None,
             status: "Press 'r' to refresh, arrows to navigate, 'q' to quit".into(),
@@ -115,7 +122,7 @@ impl App {
 
     async fn load_issues(&mut self) {
         self.abort_pending();
-        match fetch_issue_summaries().await {
+        match fetch_issue_summaries(&self.service).await {
             Ok((issues, detail)) => {
                 self.issues = issues;
                 self.detail = detail;
@@ -156,10 +163,8 @@ impl App {
     }
 
     fn queue_detail_fetch(&mut self, key: String) {
-        self.pending_detail = Some(tokio::spawn(fetch_issue_detail(
-            DEFAULT_PROFILE.to_string(),
-            key,
-        )));
+        let service = self.service.clone();
+        self.pending_detail = Some(tokio::spawn(fetch_issue_detail(service, key)));
     }
 
     fn abort_pending(&mut self) {
@@ -169,18 +174,10 @@ impl App {
     }
 }
 
-async fn fetch_issue_summaries() -> Result<(
+async fn fetch_issue_summaries(service: &IssueService) -> Result<(
     Vec<linear_core::graphql::IssueSummary>,
     Option<linear_core::graphql::IssueDetail>,
 )> {
-    let session = match load_session(DEFAULT_PROFILE).await {
-        Ok(session) => session,
-        Err(err) => return Err(anyhow!("authentication error: {err}")),
-    };
-
-    let client =
-        LinearGraphqlClient::from_session(&session).context("failed to build GraphQL client")?;
-    let service = IssueService::new(client);
     let issues = service
         .list(IssueQueryOptions {
             limit: 20,
@@ -190,7 +187,7 @@ async fn fetch_issue_summaries() -> Result<(
         .context("failed to fetch issues")?;
 
     let detail = if let Some(first) = issues.get(0) {
-        fetch_issue_detail(DEFAULT_PROFILE.to_string(), first.identifier.clone()).await?
+        fetch_issue_detail(service.clone(), first.identifier.clone()).await?
     } else {
         None
     };
@@ -199,13 +196,9 @@ async fn fetch_issue_summaries() -> Result<(
 }
 
 async fn fetch_issue_detail(
-    profile: String,
+    service: IssueService,
     key: String,
 ) -> Result<Option<linear_core::graphql::IssueDetail>> {
-    let session = load_session(&profile).await?;
-    let client =
-        LinearGraphqlClient::from_session(&session).context("failed to build GraphQL client")?;
-    let service = IssueService::new(client);
     Ok(service.get_by_key(&key).await.ok())
 }
 
