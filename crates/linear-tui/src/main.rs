@@ -78,6 +78,12 @@ async fn run_app<B: ratatui::backend::Backend>(
                         KeyCode::Backspace => {
                             app.palette_input.pop();
                         }
+                        KeyCode::Up => {
+                            app.recall_palette_history(-1);
+                        }
+                        KeyCode::Down => {
+                            app.recall_palette_history(1);
+                        }
                         KeyCode::Char(c) => {
                             app.palette_input.push(c);
                         }
@@ -153,6 +159,8 @@ struct App {
     states_team_id: Option<String>,
     palette_active: bool,
     palette_input: String,
+    palette_history: Vec<String>,
+    palette_history_index: Option<usize>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -179,6 +187,8 @@ impl App {
             states_team_id: None,
             palette_active: false,
             palette_input: String::new(),
+            palette_history: Vec::new(),
+            palette_history_index: None,
         }
     }
 
@@ -358,6 +368,25 @@ impl App {
             .map(|state| state.id.clone())
     }
 
+    fn recall_palette_history(&mut self, delta: isize) {
+        if self.palette_history.is_empty() {
+            return;
+        }
+        let len = self.palette_history.len() as isize;
+        let current = self
+            .palette_history_index
+            .map(|idx| idx as isize)
+            .unwrap_or(len);
+        let mut next = (current + delta).clamp(0, len);
+        if next == len {
+            self.palette_history_index = None;
+            self.palette_input.clear();
+        } else {
+            self.palette_history_index = Some(next as usize);
+            self.palette_input = self.palette_history[next as usize].clone();
+        }
+    }
+
     fn toggle_focus(&mut self) {
         self.focus = match self.focus {
             Focus::Issues => Focus::Teams,
@@ -374,11 +403,23 @@ impl App {
     fn enter_palette(&mut self) {
         self.palette_active = true;
         self.palette_input.clear();
-        self.status = "Command mode (: to exit)".into();
+        self.palette_history_index = None;
+        self.status = "Command mode (: to exit, ↑/↓ history)".into();
     }
 
     async fn execute_command(&mut self, command: String) {
         let cmd = command.trim();
+        self.palette_history_index = None;
+        if !cmd.is_empty() {
+            if self
+                .palette_history
+                .last()
+                .map(|last| last != cmd)
+                .unwrap_or(true)
+            {
+                self.palette_history.push(cmd.to_string());
+            }
+        }
         if cmd.starts_with("team ") {
             let team_key = cmd.trim_start_matches("team ").trim();
             self.ensure_teams().await;
