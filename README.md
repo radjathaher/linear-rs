@@ -25,7 +25,7 @@ Keys:
 - `Tab` cycle focus between teams, states, issues
 - `j/k` navigate within focused list
 - `t`/`s` cycle team/state filters
-- `:` open command palette (history with ↑/↓, commands: `team <key>`, `state <name>`, `clear`)
+- `:` open command palette (history with ↑/↓, commands: `team <key>`, `state <name>`, `clear`, `reload`)
 
 ## Development
 - `cargo fmt`, `cargo clippy --workspace`

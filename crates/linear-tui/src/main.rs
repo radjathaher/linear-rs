@@ -17,6 +17,7 @@ use tokio::runtime::Runtime;
 use tokio::task::JoinHandle;
 
 const DEFAULT_PROFILE: &str = "default";
+const SPINNER_FRAMES: [char; 4] = ['-', '\\', '|', '/'];
 
 fn main() -> Result<()> {
     let runtime = Runtime::new()?;
@@ -67,7 +68,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                         KeyCode::Esc => {
                             app.palette_active = false;
                             app.palette_input.clear();
-                            app.status = "Exited command mode".into();
+                            app.set_status("Exited command mode", false);
                         }
                         KeyCode::Enter => {
                             let cmd = app.palette_input.clone();
@@ -122,22 +123,30 @@ async fn run_app<B: ratatui::backend::Backend>(
                 let handle = app.pending_detail.take().unwrap();
                 match handle.await {
                     Ok(Ok(Some(detail))) => {
-                        app.status = format!("Loaded {}", detail.identifier);
+                        app.set_status(format!("Loaded {}", detail.identifier), false);
                         app.detail = Some(detail);
                     }
                     Ok(Ok(None)) => {
-                        app.status = "Issue detail unavailable".into();
+                        app.set_status("Issue detail unavailable", false);
                         app.detail = None;
                     }
                     Ok(Err(err)) => {
-                        app.status = format!("Error loading detail: {err}");
+                        app.set_status(format!("Error loading detail: {err}"), false);
                         app.detail = None;
                     }
                     Err(err) => {
-                        app.status = format!("Task error loading detail: {err}");
+                        app.set_status(format!("Task error loading detail: {err}"), false);
                         app.detail = None;
                     }
                 }
+            }
+        }
+
+        if app.status_spinner {
+            if app.pending_detail.is_some() {
+                app.status_tick();
+            } else {
+                app.status_spinner = false;
             }
         }
     }
@@ -148,7 +157,9 @@ struct App {
     service: IssueService,
     issues: Vec<linear_core::graphql::IssueSummary>,
     detail: Option<linear_core::graphql::IssueDetail>,
-    status: String,
+    status_base: String,
+    status_spinner: bool,
+    spinner_index: usize,
     focus: Focus,
     selected: usize,
     pending_detail: Option<JoinHandle<Result<Option<linear_core::graphql::IssueDetail>>>>,
@@ -176,7 +187,9 @@ impl App {
             service,
             issues: Vec::new(),
             detail: None,
-            status: "Press 'r' to refresh, arrows to navigate, 'q' to quit".into(),
+            status_base: "Press 'r' to refresh, arrows to navigate, 'q' to quit".into(),
+            status_spinner: false,
+            spinner_index: 0,
             focus: Focus::Issues,
             selected: 0,
             pending_detail: None,
@@ -189,6 +202,33 @@ impl App {
             palette_input: String::new(),
             palette_history: Vec::new(),
             palette_history_index: None,
+        }
+    }
+
+    fn set_status(&mut self, message: impl Into<String>, spinner: bool) {
+        self.status_base = message.into();
+        self.status_spinner = spinner;
+        if spinner {
+            self.spinner_index = 0;
+        }
+    }
+
+    fn set_spinner_status(&mut self, message: impl Into<String>) {
+        self.set_status(message, true);
+    }
+
+    fn status_text(&self) -> String {
+        if self.status_spinner {
+            let frame = SPINNER_FRAMES[self.spinner_index % SPINNER_FRAMES.len()];
+            format!("{} {}", self.status_base, frame)
+        } else {
+            self.status_base.clone()
+        }
+    }
+
+    fn status_tick(&mut self) {
+        if self.status_spinner {
+            self.spinner_index = (self.spinner_index + 1) % SPINNER_FRAMES.len();
         }
     }
 
@@ -210,17 +250,20 @@ impl App {
                 if self.detail.is_none() && !self.issues.is_empty() {
                     let first_key = self.issues[0].identifier.clone();
                     self.queue_detail_fetch(first_key);
-                    self.status = format!(
+                    self.set_spinner_status(format!(
                         "Loading first issue... (team: {}, state: {})",
                         self.current_team_label(),
                         self.current_state_label()
-                    );
+                    ));
                 } else {
-                    self.status = format!(
-                        "Loaded {} issues (team: {}, state: {})",
-                        self.issues.len(),
-                        self.current_team_label(),
-                        self.current_state_label()
+                    self.set_status(
+                        format!(
+                            "Loaded {} issues (team: {}, state: {})",
+                            self.issues.len(),
+                            self.current_team_label(),
+                            self.current_state_label()
+                        ),
+                        false,
                     );
                 }
             }
@@ -228,7 +271,7 @@ impl App {
                 self.issues.clear();
                 self.detail = None;
                 self.selected = 0;
-                self.status = format!("Error: {err}");
+                self.set_status(format!("Error: {err}"), false);
             }
         }
     }
@@ -245,7 +288,7 @@ impl App {
                 let key = issue.identifier.clone();
                 self.detail = None;
                 self.abort_pending();
-                self.status = format!("Loading {}...", key);
+                self.set_spinner_status(format!("Loading {}...", key));
                 self.queue_detail_fetch(key);
             }
         }
@@ -267,7 +310,7 @@ impl App {
             match self.service.teams().await {
                 Ok(teams) => self.teams = teams,
                 Err(err) => {
-                    self.status = format!("Failed to load teams: {err}");
+                    self.set_status(format!("Failed to load teams: {err}"), false);
                 }
             }
         }
@@ -290,7 +333,7 @@ impl App {
         self.state_index = None;
         self.states_team_id = None;
         let team_label = self.current_team_label();
-        self.status = format!("Switched to team: {}", team_label);
+        self.set_status(format!("Switched to team: {}", team_label), false);
         self.load_issues().await;
     }
 
@@ -324,7 +367,7 @@ impl App {
                         self.state_index = None;
                     }
                     Err(err) => {
-                        self.status = format!("Failed to load states: {err}");
+                        self.set_status(format!("Failed to load states: {err}"), false);
                     }
                 }
             }
@@ -358,7 +401,7 @@ impl App {
             .and_then(|idx| self.states.get(idx))
             .map(|state| state.name.clone())
             .unwrap_or_else(|| "All".into());
-        self.status = format!("State filter: {}", state_label);
+        self.set_status(format!("State filter: {}", state_label), false);
         self.load_issues().await;
     }
 
@@ -366,6 +409,52 @@ impl App {
         self.state_index
             .and_then(|idx| self.states.get(idx))
             .map(|state| state.id.clone())
+    }
+
+    fn palette_suggestions(&self) -> Vec<Line<'static>> {
+        let input = self.palette_input.trim().to_ascii_lowercase();
+        if let Some(rest) = input.strip_prefix("team ") {
+            let key = rest.trim();
+            let mut lines = Vec::new();
+            for team in self
+                .teams
+                .iter()
+                .filter(|team| team.key.to_ascii_lowercase().starts_with(key))
+                .take(3)
+            {
+                lines.push(Line::from(format!("team {}", team.key)));
+            }
+            if lines.is_empty() {
+                lines.push(Line::from("team <key>"));
+            }
+            lines
+        } else if let Some(rest) = input.strip_prefix("state ") {
+            let name = rest.trim();
+            if self.states.is_empty() {
+                vec![Line::from("state <name> (load a team first)")]
+            } else {
+                let mut lines = Vec::new();
+                for state in self
+                    .states
+                    .iter()
+                    .filter(|state| state.name.to_ascii_lowercase().starts_with(name))
+                    .take(3)
+                {
+                    lines.push(Line::from(format!("state {}", state.name)));
+                }
+                if lines.is_empty() {
+                    lines.push(Line::from("state <name>"));
+                }
+                lines
+            }
+        } else {
+            vec![
+                Line::from("team <key>"),
+                Line::from("state <name>"),
+                Line::from("clear"),
+                Line::from("reload"),
+            ]
+        }
     }
 
     fn recall_palette_history(&mut self, delta: isize) {
@@ -393,18 +482,19 @@ impl App {
             Focus::Teams => Focus::States,
             Focus::States => Focus::Issues,
         };
-        self.status = match self.focus {
-            Focus::Issues => "Focus: issues".into(),
-            Focus::Teams => "Focus: teams".into(),
-            Focus::States => "Focus: states".into(),
+        let message = match self.focus {
+            Focus::Issues => "Focus: issues",
+            Focus::Teams => "Focus: teams",
+            Focus::States => "Focus: states",
         };
+        self.set_status(message, false);
     }
 
     fn enter_palette(&mut self) {
         self.palette_active = true;
         self.palette_input.clear();
         self.palette_history_index = None;
-        self.status = "Command mode (: to exit, ↑/↓ history)".into();
+        self.set_status("Command mode (: to exit, ↑/↓ history)", false);
     }
 
     async fn execute_command(&mut self, command: String) {
@@ -428,28 +518,28 @@ impl App {
                 .iter()
                 .position(|team| team.key.eq_ignore_ascii_case(team_key));
             if self.team_index.is_none() {
-                self.status = format!("Team '{}' not found", team_key);
+                self.set_status(format!("Team '{}' not found", team_key), false);
             } else {
                 self.states.clear();
                 self.state_index = None;
                 self.states_team_id = None;
-                self.status = format!("Command: team {}", team_key);
+                self.set_status(format!("Command: team {}", team_key), false);
                 self.load_issues().await;
             }
         } else if cmd.starts_with("state ") {
             let state_name = cmd.trim_start_matches("state ").trim();
             self.ensure_states().await;
             if self.states.is_empty() {
-                self.status = "Load a team with workflow states first".into();
+                self.set_status("Load a team with workflow states first", false);
             } else {
                 self.state_index = self
                     .states
                     .iter()
                     .position(|state| state.name.eq_ignore_ascii_case(state_name));
                 if self.state_index.is_none() {
-                    self.status = format!("State '{}' not found", state_name);
+                    self.set_status(format!("State '{}' not found", state_name), false);
                 } else {
-                    self.status = format!("Command: state {}", state_name);
+                    self.set_status(format!("Command: state {}", state_name), false);
                     self.load_issues().await;
                 }
             }
@@ -458,12 +548,20 @@ impl App {
             self.state_index = None;
             self.states_team_id = None;
             self.states.clear();
-            self.status = "Cleared filters".into();
+            self.set_status("Cleared filters", false);
+            self.load_issues().await;
+        } else if cmd == "reload" {
+            self.teams.clear();
+            self.team_index = None;
+            self.states.clear();
+            self.state_index = None;
+            self.states_team_id = None;
+            self.set_status("Reloading metadata", true);
             self.load_issues().await;
         } else if !cmd.is_empty() {
-            self.status = format!("Unknown command: {}", cmd);
+            self.set_status(format!("Unknown command: {}", cmd), false);
         } else {
-            self.status = "Command mode exited".into();
+            self.set_status("Command mode exited", false);
         }
     }
 }
@@ -602,7 +700,7 @@ Updated: {}",
     let detail = Paragraph::new(detail_text).block(detail_block);
     frame.render_widget(detail, right_chunks[1]);
 
-    let status = Paragraph::new(app.status.clone()).style(Style::default().fg(Color::Cyan));
+    let status = Paragraph::new(app.status_text()).style(Style::default().fg(Color::Cyan));
     frame.render_widget(status, right_chunks[2]);
 
     let help_chunks = Layout::default()
@@ -619,23 +717,46 @@ Updated: {}",
     if app.palette_active {
         let prompt = Paragraph::new(format!(":{}", app.palette_input))
             .style(Style::default().fg(Color::Yellow));
-        let mut history_lines: Vec<Line> = Vec::new();
-        for entry in app.palette_history.iter().rev().take(3) {
-            history_lines.push(Line::from(entry.as_str()));
-        }
-        let history = Paragraph::new(history_lines.clone())
-            .block(Block::default().title("History").borders(Borders::NONE))
-            .style(Style::default().fg(Color::DarkGray));
+        let suggestions_lines = app.palette_suggestions();
+        let history_lines: Vec<Line> = app
+            .palette_history
+            .iter()
+            .rev()
+            .take(3)
+            .map(|entry| Line::from(entry.as_str()))
+            .collect();
+
         frame.render_widget(prompt, help_chunks[1]);
+
+        let mut overlay_y = help_chunks[1].y;
+
         if !history_lines.is_empty() {
             let history_height = history_lines.len() as u16;
             let history_area = ratatui::layout::Rect {
                 x: help_chunks[1].x,
-                y: help_chunks[1].y.saturating_sub(history_height).max(0),
+                y: overlay_y.saturating_sub(history_height),
                 width: help_chunks[1].width,
                 height: history_height,
             };
-            frame.render_widget(history, history_area);
+            let history_widget = Paragraph::new(history_lines)
+                .block(Block::default().title("History").borders(Borders::NONE))
+                .style(Style::default().fg(Color::DarkGray));
+            frame.render_widget(history_widget, history_area);
+            overlay_y = history_area.y;
+        }
+
+        if !suggestions_lines.is_empty() {
+            let suggestions_height = suggestions_lines.len() as u16;
+            let suggestions_area = ratatui::layout::Rect {
+                x: help_chunks[1].x,
+                y: overlay_y.saturating_sub(suggestions_height),
+                width: help_chunks[1].width,
+                height: suggestions_height,
+            };
+            let suggestions_widget = Paragraph::new(suggestions_lines)
+                .block(Block::default().title("Suggestions").borders(Borders::NONE))
+                .style(Style::default().fg(Color::Gray));
+            frame.render_widget(suggestions_widget, suggestions_area);
         }
     }
 }
