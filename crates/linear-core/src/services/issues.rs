@@ -112,6 +112,7 @@ pub struct IssueQueryOptions {
     pub assignee_id: Option<String>,
     pub state_id: Option<String>,
     pub label_ids: Vec<String>,
+    pub title_contains: Option<String>,
 }
 
 impl IssueQueryOptions {
@@ -139,6 +140,13 @@ impl IssueQueryOptions {
 
         if !self.label_ids.is_empty() {
             filter.insert("labels".into(), json!({ "id": { "in": self.label_ids } }));
+        }
+
+        if let Some(search) = self.title_contains {
+            filter.insert(
+                "title".into(),
+                json!({ "contains": search }),
+            );
         }
 
         let filter = if filter.is_empty() {

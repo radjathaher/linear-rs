@@ -118,6 +118,9 @@ struct IssueListArgs {
     /// Filter by label ids (repeatable)
     #[arg(long = "label-id")]
     label_ids: Vec<String>,
+    /// Match issues whose title contains the term
+    #[arg(long = "contains")]
+    contains: Option<String>,
     /// Output raw JSON
     #[arg(long)]
     json: bool,
@@ -442,6 +445,7 @@ async fn issue_list(args: IssueListArgs) -> Result<()> {
         assignee_id: args.assignee_id.clone(),
         state_id: args.state_id.clone(),
         label_ids: args.label_ids.clone(),
+        title_contains: args.contains.clone(),
     };
 
     if options.team_id.is_none() {

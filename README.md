@@ -13,7 +13,7 @@ cargo run -p linear-cli -- issue list --team KEY --state-id STATE_ID
 ```
 Key commands:
 - `linear auth login` – OAuth login with browser/manual/API key options
-- `linear issue list` – filter with `--team`, `--state`, `--assignee-id`, `--label-id`
+- `linear issue list` – filter with `--team`, `--state`, `--assignee-id`, `--label-id`, `--contains`
 - `linear team list`, `linear state list --team KEY`
 
 ## TUI Usage
