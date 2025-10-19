@@ -22,6 +22,8 @@ pub enum GraphqlError {
     InvalidEndpoint(#[from] url::ParseError),
     #[error("GraphQL returned errors: {0:?}")]
     ResponseErrors(Vec<GraphqlResponseError>),
+    #[error("GraphQL operation failed: {0}")]
+    OperationFailed(String),
     #[error("failed to deserialize response: {0}")]
     Deserialize(#[from] serde_json::Error),
     #[error("missing viewer payload in response")]
@@ -328,6 +330,96 @@ impl LinearGraphqlClient {
         Ok(data)
     }
 
+    /// Create a new issue using the Linear GraphQL API.
+    pub async fn create_issue(&self, input: IssueCreateInput) -> GraphqlResult<IssueDetail> {
+        #[derive(Serialize)]
+        struct Variables {
+            input: IssueCreateInput,
+        }
+
+        #[derive(Serialize)]
+        struct Request<'a> {
+            query: &'a str,
+            variables: Variables,
+        }
+
+        #[derive(Deserialize)]
+        struct IssueCreateEnvelope {
+            #[serde(rename = "issueCreate")]
+            issue_create: IssueCreatePayload,
+        }
+
+        #[derive(Deserialize)]
+        struct IssueCreatePayload {
+            success: bool,
+            issue: Option<IssueDetail>,
+            #[serde(rename = "userErrors", default)]
+            user_errors: Vec<ApiUserError>,
+        }
+
+        #[derive(Deserialize)]
+        struct ApiUserError {
+            message: Option<String>,
+        }
+
+        const MUTATION: &str = r#"
+            mutation CreateIssue($input: IssueCreateInput!) {
+                issueCreate(input: $input) {
+                    success
+                    userErrors {
+                        message
+                    }
+                    issue {
+                        id
+                        identifier
+                        title
+                        description
+                        url
+                        priority
+                        createdAt
+                        updatedAt
+                        state { id name type }
+                        assignee { id name displayName handle }
+                        labels(first: 20) {
+                            nodes { id name color }
+                        }
+                    }
+                }
+            }
+        "#;
+
+        let response: GraphqlEnvelope<IssueCreateEnvelope> = self
+            .post(Request {
+                query: MUTATION,
+                variables: Variables { input },
+            })
+            .await?;
+
+        if let Some(errors) = response.errors {
+            return Err(GraphqlError::ResponseErrors(errors));
+        }
+
+        let payload = response.data.ok_or(GraphqlError::NotFound)?.issue_create;
+
+        if !payload.success {
+            let message = payload
+                .user_errors
+                .into_iter()
+                .filter_map(|err| err.message)
+                .collect::<Vec<_>>()
+                .join("; ");
+            let message = if message.is_empty() {
+                "unknown error".to_string()
+            } else {
+                message
+            };
+            return Err(GraphqlError::OperationFailed(message));
+        }
+
+        let issue = payload.issue.ok_or(GraphqlError::NotFound)?;
+        Ok(issue)
+    }
+
     async fn post<T, R>(&self, body: T) -> GraphqlResult<R>
     where
         T: Serialize,
@@ -365,6 +457,7 @@ struct ViewerEnvelope {
 
 /// Subset of viewer fields useful for identity-aware commands.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Viewer {
     pub id: String,
     pub name: Option<String>,
@@ -375,6 +468,7 @@ pub struct Viewer {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct IssueSummary {
     pub id: String,
     pub identifier: String,
@@ -388,6 +482,7 @@ pub struct IssueSummary {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct IssueDetail {
     pub id: String,
     pub identifier: String,
@@ -416,6 +511,7 @@ pub struct IssueState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct IssueAssignee {
     pub id: String,
     pub name: Option<String>,
@@ -424,6 +520,7 @@ pub struct IssueAssignee {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct IssueLabel {
     pub id: String,
     pub name: String,
@@ -431,6 +528,7 @@ pub struct IssueLabel {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TeamSummary {
     pub id: String,
     pub name: String,
@@ -451,6 +549,38 @@ pub struct IssueListParams {
     pub first: usize,
     pub filter: Option<Value>,
     pub after: Option<String>,
+}
+
+/// Input used when creating a new issue.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueCreateInput {
+    pub team_id: String,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assignee_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state_id: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub label_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<i32>,
+}
+
+impl IssueCreateInput {
+    pub fn new(team_id: impl Into<String>, title: impl Into<String>) -> Self {
+        Self {
+            team_id: team_id.into(),
+            title: title.into(),
+            description: None,
+            assignee_id: None,
+            state_id: None,
+            label_ids: Vec::new(),
+            priority: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -481,6 +611,7 @@ struct IssueEdgeConnection<T> {
 
 #[derive(Debug, Deserialize)]
 struct IssueEdge<T> {
+    #[serde(rename = "cursor")]
     _cursor: String,
     node: T,
 }
@@ -608,5 +739,86 @@ mod tests {
 
         let err = client.issue_by_key("ENG-404").await.unwrap_err();
         assert!(matches!(err, GraphqlError::NotFound));
+    }
+
+    #[tokio::test]
+    async fn create_issue_success() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(POST).path("/graphql");
+            then.status(200).json_body_obj(&serde_json::json!({
+                "data": {
+                    "issueCreate": {
+                        "success": true,
+                        "userErrors": [],
+                        "issue": {
+                            "id": "issue-42",
+                            "identifier": "ENG-42",
+                            "title": "Implement issue create",
+                            "description": "Body",
+                            "url": "https://linear.app/issue/42",
+                            "priority": 1,
+                            "createdAt": "2024-07-03T12:00:00.000Z",
+                            "updatedAt": "2024-07-03T12:00:00.000Z",
+                            "state": { "id": "state-1", "name": "Todo", "type": "backlog" },
+                            "assignee": { "id": "user-1", "name": "Ada", "displayName": "Ada", "handle": "ada" },
+                            "labels": {
+                                "nodes": [
+                                    { "id": "label-1", "name": "bug", "color": "#ff0000" }
+                                ]
+                            }
+                        }
+                    }
+                }
+            }));
+        });
+
+        let client = LinearGraphqlClient::with_endpoint(
+            &sample_session(),
+            &format!("{}{}", server.base_url(), "/graphql"),
+        )
+        .unwrap();
+
+        let mut input = IssueCreateInput::new("team-1", "Implement issue create");
+        input.description = Some("Body".into());
+        let issue = client.create_issue(input).await.unwrap();
+        mock.assert();
+        assert_eq!(issue.identifier, "ENG-42");
+        assert_eq!(issue.description.as_deref(), Some("Body"));
+    }
+
+    #[tokio::test]
+    async fn create_issue_failure_returns_operation_failed() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/graphql");
+            then.status(200).json_body_obj(&serde_json::json!({
+                "data": {
+                    "issueCreate": {
+                        "success": false,
+                        "userErrors": [
+                            { "message": "Team not found" }
+                        ]
+                    }
+                }
+            }));
+        });
+
+        let client = LinearGraphqlClient::with_endpoint(
+            &sample_session(),
+            &format!("{}{}", server.base_url(), "/graphql"),
+        )
+        .unwrap();
+
+        let err = client
+            .create_issue(IssueCreateInput::new("team-1", "New issue"))
+            .await
+            .unwrap_err();
+        match err {
+            GraphqlError::OperationFailed(message) => {
+                assert!(message.contains("Team not found"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 }

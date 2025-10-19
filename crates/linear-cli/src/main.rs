@@ -9,7 +9,7 @@ use linear_core::auth::{
 use linear_core::graphql::{
     IssueDetail, IssueSummary, LinearGraphqlClient, TeamSummary, Viewer, WorkflowStateSummary,
 };
-use linear_core::services::issues::{IssueQueryOptions, IssueService};
+use linear_core::services::issues::{IssueCreateOptions, IssueQueryOptions, IssueService};
 use pulldown_cmark::{Event, Options, Parser as MarkdownParser, Tag, TagEnd};
 use serde_json::json;
 use textwrap::wrap;
@@ -75,6 +75,8 @@ enum IssueCommand {
     List(IssueListArgs),
     /// View a single issue by key (e.g. ENG-123)
     View(IssueViewArgs),
+    /// Create a new issue
+    Create(IssueCreateArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -134,6 +136,43 @@ struct IssueViewArgs {
     #[arg(long, default_value = DEFAULT_PROFILE)]
     profile: String,
     /// Output raw JSON
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Args, Debug)]
+struct IssueCreateArgs {
+    /// Profile name for stored credentials
+    #[arg(long, default_value = DEFAULT_PROFILE)]
+    profile: String,
+    /// Team key/slug/id for the issue (resolved automatically)
+    #[arg(long = "team", required_unless_present = "team-id")]
+    team: Option<String>,
+    /// Explicit team id for the issue
+    #[arg(long = "team-id", required_unless_present = "team")]
+    team_id: Option<String>,
+    /// Issue title
+    #[arg(long)]
+    title: String,
+    /// Issue description (Markdown supported)
+    #[arg(long)]
+    description: Option<String>,
+    /// Assign to a user by id
+    #[arg(long = "assignee-id")]
+    assignee_id: Option<String>,
+    /// Explicit workflow state id
+    #[arg(long = "state-id", conflicts_with = "state")]
+    state_id: Option<String>,
+    /// Workflow state name (requires --team/--team-id)
+    #[arg(long = "state")]
+    state: Option<String>,
+    /// Apply label ids (repeatable)
+    #[arg(long = "label-id")]
+    label_ids: Vec<String>,
+    /// Priority (0-4)
+    #[arg(long, value_parser = clap::value_parser!(i32).range(0..=4))]
+    priority: Option<i32>,
+    /// Output raw JSON instead of formatted text
     #[arg(long)]
     json: bool,
 }
@@ -207,6 +246,7 @@ async fn main() -> Result<()> {
         Commands::Issue(cmd) => match cmd {
             IssueCommand::List(args) => issue_list(args).await?,
             IssueCommand::View(args) => issue_view(args).await?,
+            IssueCommand::Create(args) => issue_create(args).await?,
         },
         Commands::Team(cmd) => match cmd {
             TeamCommand::List(args) => team_list(args).await?,
@@ -489,6 +529,56 @@ async fn issue_list(args: IssueListArgs) -> Result<()> {
         if issues.has_next_page {
             eprintln!("… more issues available (use pagination commands in the TUI)");
         }
+    }
+
+    Ok(())
+}
+
+async fn issue_create(args: IssueCreateArgs) -> Result<()> {
+    let session = load_session(&args.profile).await?;
+    let client =
+        LinearGraphqlClient::from_session(&session).context("failed to build GraphQL client")?;
+    let service = IssueService::new(client);
+
+    let team_id = match (&args.team_id, &args.team) {
+        (Some(id), _) => id.clone(),
+        (None, Some(team_input)) => service
+            .resolve_team_id(team_input)
+            .await?
+            .ok_or_else(|| anyhow!("team '{}' not found", team_input))?,
+        (None, None) => return Err(anyhow!("--team or --team-id is required")),
+    };
+
+    let mut state_id = args.state_id.clone();
+    if state_id.is_none() {
+        if let Some(state_name) = &args.state {
+            state_id = Some(
+                service
+                    .resolve_state_id(&team_id, state_name)
+                    .await?
+                    .ok_or_else(|| anyhow!("state '{}' not found for team", state_name))?,
+            );
+        }
+    }
+
+    let mut options = IssueCreateOptions::new(team_id, args.title.clone());
+    options.description = args.description.clone();
+    options.assignee_id = args.assignee_id.clone();
+    options.state_id = state_id;
+    options.label_ids = args.label_ids.clone();
+    options.priority = args.priority;
+
+    let issue = service
+        .create(options)
+        .await
+        .context("GraphQL request failed")?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&issue)?);
+    } else {
+        println!("Created {}", issue.identifier);
+        println!();
+        render_issue_detail(&issue);
     }
 
     Ok(())

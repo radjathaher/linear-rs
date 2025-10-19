@@ -151,7 +151,10 @@ mod tests {
                 .host_str()
                 .expect("url has host")
                 .to_owned();
-            let port = url.port().expect("url has port");
+            let port = url
+                .port()
+                .or_else(|| url.port_or_known_default())
+                .expect("url should provide a port");
             let state = url
                 .query_pairs()
                 .find(|(k, _)| k == "state")
@@ -196,7 +199,10 @@ mod tests {
 
         let err = run_loopback_flow(&client, false, |url| {
             let host = url.host_str().unwrap().to_owned();
-            let port = url.port().unwrap();
+            let port = url
+                .port()
+                .or_else(|| url.port_or_known_default())
+                .expect("url should provide a port");
             tokio::spawn(async move {
                 let mut stream = TcpStream::connect((host.clone(), port)).await.unwrap();
                 let request = format!(

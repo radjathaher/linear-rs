@@ -108,7 +108,7 @@ linear-rs/
    - Token refresh + persistence (config/credential store).
    - Auto-detect preferred flow based on environment (`$DISPLAY`, TTY).
 3. Stand up GraphQL client wrappers and schema codegen; cover `viewer` + issue list queries with mocked integration tests.
-4. Build initial `linear-cli` commands: `auth login`, `issue list`, `issue view <id>`, `issue create`.
+4. ~~Build initial `linear-cli` commands: `auth login`, `issue list`, `issue view <id>`, `issue create`.~~ Done October 19, 2025 (`linear issue create` added with team/state resolution helpers).
 5. Prototype `linear-tui` core loop: app skeleton, issue list panel, detail panel, key bindings (`j/k`, `/`, `q`).
 6. Expand testing + docs: CLI help audit, README quickstart, developer docs, and ensure integration test coverage.
 7. Push changes to `github.com/radjathaher/linear-rs` after each atomic milestone.

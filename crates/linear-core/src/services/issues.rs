@@ -6,7 +6,7 @@ use serde_json::{json, Map, Value};
 use tokio::sync::RwLock;
 
 use crate::graphql::{
-    GraphqlResult, IssueDetail, IssueListParams, IssueListResponse, IssueSummary,
+    GraphqlResult, IssueCreateInput, IssueDetail, IssueListParams, IssueListResponse, IssueSummary,
     LinearGraphqlClient, TeamSummary, WorkflowStateSummary,
 };
 
@@ -107,6 +107,29 @@ impl IssueService {
             Ok(None)
         }
     }
+
+    pub async fn create(&self, options: IssueCreateOptions) -> GraphqlResult<IssueDetail> {
+        let IssueCreateOptions {
+            team_id,
+            title,
+            description,
+            assignee_id,
+            state_id,
+            label_ids,
+            priority,
+        } = options;
+
+        let mut input = IssueCreateInput::new(team_id, title);
+        input.description = description;
+        input.assignee_id = assignee_id;
+        input.state_id = state_id;
+        if !label_ids.is_empty() {
+            input.label_ids = label_ids;
+        }
+        input.priority = priority;
+
+        self.client.create_issue(input).await
+    }
 }
 
 /// Options used to constrain issue queries.
@@ -127,6 +150,32 @@ pub struct IssueListResult {
     pub issues: Vec<IssueSummary>,
     pub end_cursor: Option<String>,
     pub has_next_page: bool,
+}
+
+/// Settings to create a new issue.
+#[derive(Debug, Clone)]
+pub struct IssueCreateOptions {
+    pub team_id: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub assignee_id: Option<String>,
+    pub state_id: Option<String>,
+    pub label_ids: Vec<String>,
+    pub priority: Option<i32>,
+}
+
+impl IssueCreateOptions {
+    pub fn new(team_id: impl Into<String>, title: impl Into<String>) -> Self {
+        Self {
+            team_id: team_id.into(),
+            title: title.into(),
+            description: None,
+            assignee_id: None,
+            state_id: None,
+            label_ids: Vec::new(),
+            priority: None,
+        }
+    }
 }
 
 impl IssueQueryOptions {
