@@ -34,6 +34,15 @@
 - Issue quick editor flyout: planned enhancement for inline issue edits.
 - Help overlay: grouped keymap reference.
 
+### Palette Shortcuts
+- `team <key>` / `state <name>` / `project <name|next|prev|clear>` – filter helpers with suggestion lists.
+- `contains <text>` – focuses the title search; `contains clear` removes it.
+- `view <issue-key|index|next|prev|first|last>` – navigation helpers that work outside the issues list focus.
+- `detail <summary|description|activity|sub-issues|next|prev>` – tab control exposed in addition to `.` / `,`.
+- `activity` / `sub-issues` – fast shorthands to jump straight to the new tabs when data is available; selections persist per issue.
+- `status <todo|doing|done|all|next|prev>` – workflow state filters aligned with the status tabs.
+- `page <number|next|prev|refresh>` – explicit pagination control with cache-aware refresh mechanics.
+
 ## Interaction Model
 - Focus order: Issues list (default) → Filter bar selectors → Sidebar.
 - Team selector: `t`/`Shift+t` cycle teams, `/` filter via palette.
