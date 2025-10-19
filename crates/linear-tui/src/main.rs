@@ -524,6 +524,7 @@ impl App {
                 Line::from("contains clear"),
                 Line::from("clear"),
                 Line::from("reload"),
+                Line::from("help"),
             ]
         }
     }
@@ -646,6 +647,11 @@ impl App {
             return;
         }
 
+        if matches!(cmd, "help" | "?") {
+            self.open_help_overlay();
+            return;
+        }
+
         match cmd {
             "" => self.set_status("Command mode exited", false),
             "clear" => {
@@ -672,6 +678,16 @@ impl App {
             self.set_status("Help open (? or Esc to close)", false);
         } else {
             self.set_status("Help closed", false);
+        }
+    }
+
+    fn open_help_overlay(&mut self) {
+        if !self.show_help_overlay {
+            self.show_help_overlay = true;
+            self.palette_active = false;
+            self.set_status("Help open (? or Esc to close)", false);
+        } else {
+            self.set_status("Help already open (? or Esc to close)", false);
         }
     }
 }
@@ -899,6 +915,7 @@ fn render_app(frame: &mut Frame, app: &App) {
             Line::from("Filters:"),
             Line::from("  / opens contains filter  :team/:state/:contains"),
             Line::from("  clear resets filters  contains clear drops title filter"),
+            Line::from("  help opens this overlay"),
             Line::from("Close help with ? or Esc"),
         ];
         let help_overlay = Paragraph::new(help_lines)

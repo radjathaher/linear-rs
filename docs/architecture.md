@@ -52,7 +52,7 @@ linear-rs/
 - Bottom command palette for quick actions (`:` to open, `?` for help).
 - Command palette doubles as a command entry surface with history (↑/↓), supporting commands like `team <key>`, `state <name>`, `contains <text|clear>`, and `clear`; overlay echoes live input in the footer and shows recent history.
 - Slash (`/`) provides a shortcut into the palette pre-populated with `contains` to quickly refine the title filter.
-- `?` toggles an inline help overlay summarizing navigation and command shortcuts; `Esc` also closes it.
+- `?` toggles an inline help overlay summarizing navigation and command shortcuts; `Esc` also closes it. The palette accepts `help` to open the same overlay from command mode.
 - Footer banner surfaces the active team/state/title filters so users always see which constraints drive the current issue list.
 - `c` clears all active filters instantly, while active `contains` filters highlight matching tokens inside the issue list for quick scanning.
 - Async runtime (Tokio) plus `tokio::sync::mpsc` channel to integrate network calls without blocking the draw loop.
