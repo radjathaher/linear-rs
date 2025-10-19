@@ -326,6 +326,43 @@ impl App {
         self.title_contains = contains;
         self.load_issues_with_filters().await;
     }
+
+    fn select_issue(&mut self, index: usize) {
+        if self.issues.is_empty() || index >= self.issues.len() {
+            return;
+        }
+        if self.selected == index && self.detail.is_some() {
+            return;
+        }
+        self.selected = index;
+        if let Some(issue) = self.issues.get(self.selected) {
+            let key = issue.identifier.clone();
+            self.detail = None;
+            self.abort_pending();
+            self.set_spinner_status(format!("Loading {}...", key));
+            self.queue_detail_fetch(key);
+        }
+    }
+
+    fn jump_to_issue(&mut self, key: &str) -> bool {
+        if self.issues.is_empty() {
+            return false;
+        }
+        if let Some(idx) = self
+            .issues
+            .iter()
+            .position(|issue| issue.identifier.eq_ignore_ascii_case(key))
+        {
+            if idx == self.selected {
+                self.set_status(format!("Already focused on {}", key.to_uppercase()), false);
+            } else {
+                self.select_issue(idx);
+            }
+            true
+        } else {
+            false
+        }
+    }
     async fn clear_all_filters(&mut self) {
         self.team_index = None;
         self.state_index = None;
@@ -342,14 +379,7 @@ impl App {
         let len = self.issues.len();
         let new_index = (self.selected as isize + delta).clamp(0, (len - 1) as isize) as usize;
         if new_index != self.selected {
-            self.selected = new_index;
-            if let Some(issue) = self.issues.get(self.selected) {
-                let key = issue.identifier.clone();
-                self.detail = None;
-                self.abort_pending();
-                self.set_spinner_status(format!("Loading {}...", key));
-                self.queue_detail_fetch(key);
-            }
+            self.select_issue(new_index);
         }
     }
 
@@ -522,6 +552,7 @@ impl App {
                 Line::from("state <name>"),
                 Line::from("contains <text>"),
                 Line::from("contains clear"),
+                Line::from("view <issue-key>"),
                 Line::from("clear"),
                 Line::from("reload"),
                 Line::from("help"),
@@ -643,6 +674,18 @@ impl App {
             } else {
                 self.set_status(format!("Title contains '{}'", term), false);
                 self.load_issues_with_contains(Some(term.to_string())).await;
+            }
+            return;
+        }
+
+        if let Some(key) = cmd.strip_prefix("view ") {
+            let key = key.trim();
+            if key.is_empty() {
+                self.set_status("Usage: view <issue-key>", false);
+            } else if self.jump_to_issue(key) {
+                self.set_status(format!("Jumped to {}", key.to_uppercase()), false);
+            } else {
+                self.set_status(format!("Issue '{}' not in the current list", key), false);
             }
             return;
         }
