@@ -9,8 +9,8 @@ use linear_core::graphql::{LinearGraphqlClient, TeamSummary, WorkflowStateSummar
 use linear_core::services::issues::{IssueQueryOptions, IssueService};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Style};
-use ratatui::text::Line;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
 use ratatui::{Frame, Terminal};
 use textwrap::wrap;
@@ -765,8 +765,8 @@ fn render_app(frame: &mut Frame, app: &App) {
         app.issues
             .iter()
             .map(|issue| {
-                let line = format!("{}  {}", issue.identifier, issue.title);
-                ListItem::new(Line::from(line))
+                let line = issue_list_line(issue, app.title_contains.as_deref());
+                ListItem::new(line)
             })
             .collect()
     };
@@ -948,6 +948,51 @@ fn render_team_panel(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) 
         .block(Block::default().title("States").borders(Borders::ALL))
         .highlight_style(state_highlight);
     frame.render_stateful_widget(state_list, panels[1], &mut state_state);
+}
+
+fn issue_list_line(
+    issue: &linear_core::graphql::IssueSummary,
+    filter: Option<&str>,
+) -> Line<'static> {
+    let mut spans = Vec::new();
+    spans.push(Span::raw(format!("{}  ", issue.identifier)));
+    if let Some(query) = filter.filter(|q| !q.is_empty()) {
+        spans.extend(highlight_spans(&issue.title, query));
+    } else {
+        spans.push(Span::raw(issue.title.clone()));
+    }
+    Line::from(spans)
+}
+
+fn highlight_spans(text: &str, query: &str) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    let needle = query.to_lowercase();
+    if needle.is_empty() {
+        spans.push(Span::raw(text.to_string()));
+        return spans;
+    }
+    let haystack = text.to_lowercase();
+    let mut start = 0;
+    let mut offset = 0;
+    while let Some(pos) = haystack[offset..].find(&needle) {
+        let match_start = offset + pos;
+        if match_start > start {
+            spans.push(Span::raw(text[start..match_start].to_string()));
+        }
+        let match_end = match_start + needle.len();
+        spans.push(Span::styled(
+            text[match_start..match_end].to_string(),
+            Style::default()
+                .fg(Color::LightGreen)
+                .add_modifier(Modifier::BOLD),
+        ));
+        start = match_end;
+        offset = match_end;
+    }
+    if start < text.len() {
+        spans.push(Span::raw(text[start..].to_string()));
+    }
+    spans
 }
 
 fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
