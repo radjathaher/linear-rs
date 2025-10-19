@@ -12,10 +12,13 @@ cargo run -p linear -- auth login
 cargo run -p linear -- issue list --team KEY --state-id STATE_ID
 cargo run -p linear -- issue create --team KEY --title "New issue" --description "Details"
 ```
-Key commands:
+Key commands (see `docs/cli.md` for the full tree):
 - `linear auth login` – OAuth login with browser/manual/API key options
-- `linear issue list` – filter with `--team`, `--state`, `--assignee-id`, `--label-id`, `--contains`
-- `linear issue create` – create an issue with optional `--description`, `--state`, `--assignee-id`, `--label-id`, `--priority`
+- `linear issue list` – filter with team/state/assignee/label/contains flags plus pagination
+- `linear issue update`, `linear issue close`, `linear issue comment`, `linear issue delete --yes`
+- `linear project list|create|update|archive` – manage project metadata with sorting & filters
+- `linear cycle list|update` – inspect iterations per team
+- `linear label list|create|update --team-id TEAM`
 - `linear team list`, `linear state list --team KEY`
 - `linear tui` – launches the interactive interface without a separate binary
 
@@ -29,6 +32,9 @@ Keys:
 - `j/k` navigate within focused list
 - `t`/`s` cycle team/state filters
 - `:` open command palette (history with ↑/↓, commands: `team <key>`, `state <name>`, `clear`, `reload`)
+- `p` toggle the projects overlay (fetches latest projects)
+- `y` toggle the cycles overlay (uses selected team when available)
+- `?` open contextual help; `/` filter issues by title snippet
 
 CLI issue detail output strips basic Markdown (via `pulldown-cmark`) and wraps descriptions to 80 characters for readability.
 

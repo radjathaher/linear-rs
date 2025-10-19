@@ -298,6 +298,7 @@ impl LinearGraphqlClient {
                     labels(first: 20) {
                         nodes { id name color }
                     }
+                    team { id name key }
                 }
             }
         "#;
@@ -377,6 +378,7 @@ impl LinearGraphqlClient {
                         labels(first: 20) {
                             nodes { id name color }
                         }
+                        team { id name key }
                     }
                 }
             }
@@ -412,6 +414,1027 @@ impl LinearGraphqlClient {
 
         let issue = payload.issue.ok_or(GraphqlError::NotFound)?;
         Ok(issue)
+    }
+
+    /// Update an issue by id.
+    pub async fn update_issue(
+        &self,
+        id: &str,
+        input: IssueUpdateInput,
+    ) -> GraphqlResult<IssueDetail> {
+        #[derive(Serialize)]
+        struct Variables {
+            id: String,
+            input: IssueUpdateInput,
+        }
+
+        #[derive(Serialize)]
+        struct Request<'a> {
+            query: &'a str,
+            variables: Variables,
+        }
+
+        #[derive(Deserialize)]
+        struct IssueUpdateEnvelope {
+            #[serde(rename = "issueUpdate")]
+            issue_update: IssueUpdatePayload,
+        }
+
+        #[derive(Deserialize)]
+        struct IssueUpdatePayload {
+            success: bool,
+            issue: Option<IssueDetail>,
+            #[serde(rename = "userErrors", default)]
+            user_errors: Vec<ApiUserError>,
+        }
+
+        #[derive(Deserialize)]
+        struct ApiUserError {
+            message: Option<String>,
+        }
+
+        const MUTATION: &str = r#"
+            mutation IssueUpdate($id: String!, $input: IssueUpdateInput!) {
+                issueUpdate(id: $id, input: $input) {
+                    success
+                    userErrors { message }
+                    issue {
+                        id
+                        identifier
+                        title
+                        description
+                        url
+                        priority
+                        createdAt
+                        updatedAt
+                        state { id name type }
+                        assignee { id name displayName }
+                        labels(first: 20) { nodes { id name color } }
+                        team { id name key }
+                    }
+                }
+            }
+        "#;
+
+        let response: GraphqlEnvelope<IssueUpdateEnvelope> = self
+            .post(Request {
+                query: MUTATION,
+                variables: Variables {
+                    id: id.to_owned(),
+                    input,
+                },
+            })
+            .await?;
+
+        if let Some(errors) = response.errors {
+            return Err(GraphqlError::ResponseErrors(errors));
+        }
+
+        let payload = response.data.ok_or(GraphqlError::NotFound)?.issue_update;
+        if !payload.success {
+            let message = payload
+                .user_errors
+                .into_iter()
+                .filter_map(|err| err.message)
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(GraphqlError::OperationFailed(if message.is_empty() {
+                "issue update failed".into()
+            } else {
+                message
+            }));
+        }
+
+        payload.issue.ok_or(GraphqlError::NotFound)
+    }
+
+    /// Archive or restore an issue.
+    pub async fn archive_issue(&self, id: &str, archive: bool) -> GraphqlResult<IssueDetail> {
+        #[derive(Serialize)]
+        struct Variables<'a> {
+            id: &'a str,
+            archive: bool,
+        }
+
+        #[derive(Serialize)]
+        struct Request<'a> {
+            query: &'a str,
+            variables: Variables<'a>,
+        }
+
+        #[derive(Deserialize)]
+        struct IssueArchiveEnvelope {
+            #[serde(rename = "issueArchive")]
+            issue_archive: IssueUpdatePayload,
+        }
+
+        #[derive(Deserialize)]
+        struct IssueUpdatePayload {
+            success: bool,
+            issue: Option<IssueDetail>,
+            #[serde(rename = "userErrors", default)]
+            user_errors: Vec<ApiUserError>,
+        }
+
+        #[derive(Deserialize)]
+        struct ApiUserError {
+            message: Option<String>,
+        }
+
+        const MUTATION: &str = r#"
+            mutation IssueArchive($id: String!, $archive: Boolean!) {
+                issueArchive(id: $id, archive: $archive) {
+                    success
+                    userErrors { message }
+                    issue {
+                        id
+                        identifier
+                        title
+                        description
+                        url
+                        priority
+                        createdAt
+                        updatedAt
+                        state { id name type }
+                        assignee { id name displayName }
+                        labels(first: 20) { nodes { id name color } }
+                        team { id name key }
+                    }
+                }
+            }
+        "#;
+
+        let response: GraphqlEnvelope<IssueArchiveEnvelope> = self
+            .post(Request {
+                query: MUTATION,
+                variables: Variables { id, archive },
+            })
+            .await?;
+
+        if let Some(errors) = response.errors {
+            return Err(GraphqlError::ResponseErrors(errors));
+        }
+
+        let payload = response.data.ok_or(GraphqlError::NotFound)?.issue_archive;
+        if !payload.success {
+            let message = payload
+                .user_errors
+                .into_iter()
+                .filter_map(|err| err.message)
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(GraphqlError::OperationFailed(if message.is_empty() {
+                "issue archive failed".into()
+            } else {
+                message
+            }));
+        }
+
+        payload.issue.ok_or(GraphqlError::NotFound)
+    }
+
+    /// Delete an issue by id.
+    pub async fn delete_issue(&self, id: &str) -> GraphqlResult<bool> {
+        #[derive(Serialize)]
+        struct Variables<'a> {
+            id: &'a str,
+        }
+
+        #[derive(Serialize)]
+        struct Request<'a> {
+            query: &'a str,
+            variables: Variables<'a>,
+        }
+
+        #[derive(Deserialize)]
+        struct IssueDeleteEnvelope {
+            #[serde(rename = "issueDelete")]
+            issue_delete: IssueDeletePayload,
+        }
+
+        #[derive(Deserialize)]
+        struct IssueDeletePayload {
+            success: bool,
+            #[serde(rename = "userErrors", default)]
+            user_errors: Vec<ApiUserError>,
+        }
+
+        #[derive(Deserialize)]
+        struct ApiUserError {
+            message: Option<String>,
+        }
+
+        const MUTATION: &str = r#"
+            mutation IssueDelete($id: String!) {
+                issueDelete(id: $id) {
+                    success
+                    userErrors { message }
+                }
+            }
+        "#;
+
+        let response: GraphqlEnvelope<IssueDeleteEnvelope> = self
+            .post(Request {
+                query: MUTATION,
+                variables: Variables { id },
+            })
+            .await?;
+
+        if let Some(errors) = response.errors {
+            return Err(GraphqlError::ResponseErrors(errors));
+        }
+
+        let payload = response.data.ok_or(GraphqlError::NotFound)?.issue_delete;
+        if !payload.success {
+            let message = payload
+                .user_errors
+                .into_iter()
+                .filter_map(|err| err.message)
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(GraphqlError::OperationFailed(if message.is_empty() {
+                "issue delete failed".into()
+            } else {
+                message
+            }));
+        }
+
+        Ok(true)
+    }
+
+    /// Create a new comment on an issue.
+    pub async fn create_comment(&self, input: CommentCreateInput) -> GraphqlResult<Comment> {
+        #[derive(Serialize)]
+        struct Variables {
+            input: CommentCreateInput,
+        }
+
+        #[derive(Serialize)]
+        struct Request<'a> {
+            query: &'a str,
+            variables: Variables,
+        }
+
+        #[derive(Deserialize)]
+        struct CommentCreateEnvelope {
+            #[serde(rename = "commentCreate")]
+            comment_create: CommentCreatePayload,
+        }
+
+        #[derive(Deserialize)]
+        struct CommentCreatePayload {
+            success: bool,
+            comment: Option<Comment>,
+            #[serde(rename = "userErrors", default)]
+            user_errors: Vec<ApiUserError>,
+        }
+
+        #[derive(Deserialize)]
+        struct ApiUserError {
+            message: Option<String>,
+        }
+
+        const MUTATION: &str = r#"
+            mutation CommentCreate($input: CommentCreateInput!) {
+                commentCreate(input: $input) {
+                    success
+                    userErrors { message }
+                    comment {
+                        id
+                        body
+                        createdAt
+                        updatedAt
+                        user { id name displayName }
+                    }
+                }
+            }
+        "#;
+
+        let response: GraphqlEnvelope<CommentCreateEnvelope> = self
+            .post(Request {
+                query: MUTATION,
+                variables: Variables { input },
+            })
+            .await?;
+
+        if let Some(errors) = response.errors {
+            return Err(GraphqlError::ResponseErrors(errors));
+        }
+
+        let payload = response.data.ok_or(GraphqlError::NotFound)?.comment_create;
+        if !payload.success {
+            let message = payload
+                .user_errors
+                .into_iter()
+                .filter_map(|err| err.message)
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(GraphqlError::OperationFailed(if message.is_empty() {
+                "comment create failed".into()
+            } else {
+                message
+            }));
+        }
+
+        payload.comment.ok_or(GraphqlError::NotFound)
+    }
+
+    /// List projects with optional filters.
+    pub async fn projects(&self, params: ProjectListParams) -> GraphqlResult<ProjectListResponse> {
+        #[derive(Serialize)]
+        struct Variables {
+            first: i64,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            filter: Option<Value>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            order_by: Option<Value>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            after: Option<String>,
+        }
+
+        #[derive(Serialize)]
+        struct Request<'a> {
+            query: &'a str,
+            variables: Variables,
+        }
+
+        #[derive(Deserialize)]
+        struct ProjectsEnvelope {
+            projects: IssueEdgeConnection<ProjectSummary>,
+        }
+
+        const QUERY: &str = r#"
+            query ListProjects($first: Int!, $filter: ProjectFilter, $orderBy: ProjectOrderByInput, $after: String) {
+                projects(first: $first, filter: $filter, orderBy: $orderBy, after: $after) {
+                    edges {
+                        cursor
+                        node {
+                            id
+                            name
+                            state
+                            description
+                            startDate
+                            targetDate
+                            status
+                            updatedAt
+                            createdAt
+                            lead { id name displayName }
+                        }
+                    }
+                    pageInfo {
+                        hasNextPage
+                        endCursor
+                    }
+                }
+            }
+        "#;
+
+        let response: GraphqlEnvelope<ProjectsEnvelope> = self
+            .post(Request {
+                query: QUERY,
+                variables: Variables {
+                    first: params.first as i64,
+                    filter: params.filter,
+                    order_by: params.order_by,
+                    after: params.after,
+                },
+            })
+            .await?;
+
+        if let Some(errors) = response.errors {
+            return Err(GraphqlError::ResponseErrors(errors));
+        }
+
+        let connection = response.data.ok_or(GraphqlError::NotFound)?.projects;
+        let nodes = connection.edges.into_iter().map(|edge| edge.node).collect();
+        Ok(ProjectListResponse {
+            nodes,
+            end_cursor: connection.page_info.end_cursor,
+            has_next_page: connection.page_info.has_next_page,
+        })
+    }
+
+    /// Create a project.
+    pub async fn project_create(&self, input: ProjectCreateInput) -> GraphqlResult<ProjectDetail> {
+        #[derive(Serialize)]
+        struct Variables {
+            input: ProjectCreateInput,
+        }
+
+        #[derive(Serialize)]
+        struct Request<'a> {
+            query: &'a str,
+            variables: Variables,
+        }
+
+        #[derive(Deserialize)]
+        struct ProjectCreateEnvelope {
+            #[serde(rename = "projectCreate")]
+            project_create: ProjectPayload,
+        }
+
+        #[derive(Deserialize)]
+        struct ProjectPayload {
+            success: bool,
+            project: Option<ProjectDetail>,
+            #[serde(rename = "userErrors", default)]
+            user_errors: Vec<ApiUserError>,
+        }
+
+        #[derive(Deserialize)]
+        struct ApiUserError {
+            message: Option<String>,
+        }
+
+        const MUTATION: &str = r#"
+            mutation ProjectCreate($input: ProjectCreateInput!) {
+                projectCreate(input: $input) {
+                    success
+                    userErrors { message }
+                    project {
+                        id
+                        name
+                        description
+                        state
+                        startDate
+                        targetDate
+                        status
+                        updatedAt
+                        createdAt
+                        lead { id name displayName }
+                        teams { id name key }
+                    }
+                }
+            }
+        "#;
+
+        let response: GraphqlEnvelope<ProjectCreateEnvelope> = self
+            .post(Request {
+                query: MUTATION,
+                variables: Variables { input },
+            })
+            .await?;
+
+        if let Some(errors) = response.errors {
+            return Err(GraphqlError::ResponseErrors(errors));
+        }
+
+        let payload = response.data.ok_or(GraphqlError::NotFound)?.project_create;
+        if !payload.success {
+            let message = payload
+                .user_errors
+                .into_iter()
+                .filter_map(|err| err.message)
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(GraphqlError::OperationFailed(if message.is_empty() {
+                "project create failed".into()
+            } else {
+                message
+            }));
+        }
+
+        payload.project.ok_or(GraphqlError::NotFound)
+    }
+
+    /// Update a project by id.
+    pub async fn project_update(
+        &self,
+        id: &str,
+        input: ProjectUpdateInput,
+    ) -> GraphqlResult<ProjectDetail> {
+        #[derive(Serialize)]
+        struct Variables {
+            id: String,
+            input: ProjectUpdateInput,
+        }
+
+        #[derive(Serialize)]
+        struct Request<'a> {
+            query: &'a str,
+            variables: Variables,
+        }
+
+        #[derive(Deserialize)]
+        struct ProjectUpdateEnvelope {
+            #[serde(rename = "projectUpdate")]
+            project_update: ProjectPayload,
+        }
+
+        #[derive(Deserialize)]
+        struct ProjectPayload {
+            success: bool,
+            project: Option<ProjectDetail>,
+            #[serde(rename = "userErrors", default)]
+            user_errors: Vec<ApiUserError>,
+        }
+
+        #[derive(Deserialize)]
+        struct ApiUserError {
+            message: Option<String>,
+        }
+
+        const MUTATION: &str = r#"
+            mutation ProjectUpdate($id: String!, $input: ProjectUpdateInput!) {
+                projectUpdate(id: $id, input: $input) {
+                    success
+                    userErrors { message }
+                    project {
+                        id
+                        name
+                        description
+                        state
+                        startDate
+                        targetDate
+                        status
+                        updatedAt
+                        createdAt
+                        lead { id name displayName }
+                        teams { id name key }
+                    }
+                }
+            }
+        "#;
+
+        let response: GraphqlEnvelope<ProjectUpdateEnvelope> = self
+            .post(Request {
+                query: MUTATION,
+                variables: Variables {
+                    id: id.to_owned(),
+                    input,
+                },
+            })
+            .await?;
+
+        if let Some(errors) = response.errors {
+            return Err(GraphqlError::ResponseErrors(errors));
+        }
+
+        let payload = response.data.ok_or(GraphqlError::NotFound)?.project_update;
+        if !payload.success {
+            let message = payload
+                .user_errors
+                .into_iter()
+                .filter_map(|err| err.message)
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(GraphqlError::OperationFailed(if message.is_empty() {
+                "project update failed".into()
+            } else {
+                message
+            }));
+        }
+
+        payload.project.ok_or(GraphqlError::NotFound)
+    }
+
+    /// Archive or restore a project.
+    pub async fn project_archive(&self, id: &str, archive: bool) -> GraphqlResult<ProjectDetail> {
+        #[derive(Serialize)]
+        struct Variables<'a> {
+            id: &'a str,
+            archive: bool,
+        }
+
+        #[derive(Serialize)]
+        struct Request<'a> {
+            query: &'a str,
+            variables: Variables<'a>,
+        }
+
+        #[derive(Deserialize)]
+        struct ProjectArchiveEnvelope {
+            #[serde(rename = "projectArchive")]
+            project_archive: ProjectPayload,
+        }
+
+        #[derive(Deserialize)]
+        struct ProjectPayload {
+            success: bool,
+            project: Option<ProjectDetail>,
+            #[serde(rename = "userErrors", default)]
+            user_errors: Vec<ApiUserError>,
+        }
+
+        #[derive(Deserialize)]
+        struct ApiUserError {
+            message: Option<String>,
+        }
+
+        const MUTATION: &str = r#"
+            mutation ProjectArchive($id: String!, $archive: Boolean!) {
+                projectArchive(id: $id, archive: $archive) {
+                    success
+                    userErrors { message }
+                    project {
+                        id
+                        name
+                        description
+                        state
+                        startDate
+                        targetDate
+                        status
+                        updatedAt
+                        createdAt
+                        lead { id name displayName }
+                        teams { id name key }
+                    }
+                }
+            }
+        "#;
+
+        let response: GraphqlEnvelope<ProjectArchiveEnvelope> = self
+            .post(Request {
+                query: MUTATION,
+                variables: Variables { id, archive },
+            })
+            .await?;
+
+        if let Some(errors) = response.errors {
+            return Err(GraphqlError::ResponseErrors(errors));
+        }
+
+        let payload = response.data.ok_or(GraphqlError::NotFound)?.project_archive;
+        if !payload.success {
+            let message = payload
+                .user_errors
+                .into_iter()
+                .filter_map(|err| err.message)
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(GraphqlError::OperationFailed(if message.is_empty() {
+                "project archive failed".into()
+            } else {
+                message
+            }));
+        }
+
+        payload.project.ok_or(GraphqlError::NotFound)
+    }
+
+    /// List cycles for teams or organization.
+    pub async fn cycles(&self, params: CycleListParams) -> GraphqlResult<CycleListResponse> {
+        #[derive(Serialize)]
+        struct Variables {
+            first: i64,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            filter: Option<Value>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            order_by: Option<Value>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            after: Option<String>,
+        }
+
+        #[derive(Serialize)]
+        struct Request<'a> {
+            query: &'a str,
+            variables: Variables,
+        }
+
+        #[derive(Deserialize)]
+        struct CyclesEnvelope {
+            cycles: IssueEdgeConnection<CycleSummary>,
+        }
+
+        const QUERY: &str = r#"
+            query ListCycles($first: Int!, $filter: CycleFilter, $orderBy: CycleOrderByInput, $after: String) {
+                cycles(first: $first, filter: $filter, orderBy: $orderBy, after: $after) {
+                    edges {
+                        cursor
+                        node {
+                            id
+                            name
+                            number
+                            startsAt
+                            endsAt
+                            state
+                            team { id name key }
+                        }
+                    }
+                    pageInfo {
+                        hasNextPage
+                        endCursor
+                    }
+                }
+            }
+        "#;
+
+        let response: GraphqlEnvelope<CyclesEnvelope> = self
+            .post(Request {
+                query: QUERY,
+                variables: Variables {
+                    first: params.first as i64,
+                    filter: params.filter,
+                    order_by: params.order_by,
+                    after: params.after,
+                },
+            })
+            .await?;
+
+        if let Some(errors) = response.errors {
+            return Err(GraphqlError::ResponseErrors(errors));
+        }
+
+        let connection = response.data.ok_or(GraphqlError::NotFound)?.cycles;
+        let nodes = connection.edges.into_iter().map(|edge| edge.node).collect();
+        Ok(CycleListResponse {
+            nodes,
+            end_cursor: connection.page_info.end_cursor,
+            has_next_page: connection.page_info.has_next_page,
+        })
+    }
+
+    /// Update a cycle.
+    pub async fn cycle_update(
+        &self,
+        id: &str,
+        input: CycleUpdateInput,
+    ) -> GraphqlResult<CycleSummary> {
+        #[derive(Serialize)]
+        struct Variables {
+            id: String,
+            input: CycleUpdateInput,
+        }
+
+        #[derive(Serialize)]
+        struct Request<'a> {
+            query: &'a str,
+            variables: Variables,
+        }
+
+        #[derive(Deserialize)]
+        struct CycleUpdateEnvelope {
+            #[serde(rename = "cycleUpdate")]
+            cycle_update: CycleUpdatePayload,
+        }
+
+        #[derive(Deserialize)]
+        struct CycleUpdatePayload {
+            success: bool,
+            cycle: Option<CycleSummary>,
+            #[serde(rename = "userErrors", default)]
+            user_errors: Vec<ApiUserError>,
+        }
+
+        #[derive(Deserialize)]
+        struct ApiUserError {
+            message: Option<String>,
+        }
+
+        const MUTATION: &str = r#"
+            mutation CycleUpdate($id: String!, $input: CycleUpdateInput!) {
+                cycleUpdate(id: $id, input: $input) {
+                    success
+                    userErrors { message }
+                    cycle {
+                        id
+                        name
+                        number
+                        startsAt
+                        endsAt
+                        state
+                        team { id name key }
+                    }
+                }
+            }
+        "#;
+
+        let response: GraphqlEnvelope<CycleUpdateEnvelope> = self
+            .post(Request {
+                query: MUTATION,
+                variables: Variables {
+                    id: id.to_owned(),
+                    input,
+                },
+            })
+            .await?;
+
+        if let Some(errors) = response.errors {
+            return Err(GraphqlError::ResponseErrors(errors));
+        }
+
+        let payload = response.data.ok_or(GraphqlError::NotFound)?.cycle_update;
+        if !payload.success {
+            let message = payload
+                .user_errors
+                .into_iter()
+                .filter_map(|err| err.message)
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(GraphqlError::OperationFailed(if message.is_empty() {
+                "cycle update failed".into()
+            } else {
+                message
+            }));
+        }
+
+        payload.cycle.ok_or(GraphqlError::NotFound)
+    }
+
+    /// List issue labels for a team.
+    pub async fn issue_labels(&self, team_id: &str) -> GraphqlResult<Vec<IssueLabel>> {
+        #[derive(Serialize)]
+        struct Variables<'a> {
+            team_id: &'a str,
+        }
+
+        #[derive(Serialize)]
+        struct Request<'a> {
+            query: &'a str,
+            variables: Variables<'a>,
+        }
+
+        #[derive(Deserialize)]
+        struct LabelsEnvelope {
+            issue_labels: IssueLabelConnection,
+        }
+
+        const QUERY: &str = r#"
+            query IssueLabels($teamId: String!) {
+                issueLabels(filter: { team: { id: { eq: $teamId } } }) {
+                    nodes {
+                        id
+                        name
+                        color
+                    }
+                }
+            }
+        "#;
+
+        let response: GraphqlEnvelope<LabelsEnvelope> = self
+            .post(Request {
+                query: QUERY,
+                variables: Variables { team_id },
+            })
+            .await?;
+
+        if let Some(errors) = response.errors {
+            return Err(GraphqlError::ResponseErrors(errors));
+        }
+
+        let connection = response.data.ok_or(GraphqlError::NotFound)?.issue_labels;
+        Ok(connection.nodes)
+    }
+
+    /// Create a new issue label.
+    pub async fn create_issue_label(
+        &self,
+        input: IssueLabelCreateInput,
+    ) -> GraphqlResult<IssueLabel> {
+        #[derive(Serialize)]
+        struct Variables {
+            input: IssueLabelCreateInput,
+        }
+
+        #[derive(Serialize)]
+        struct Request<'a> {
+            query: &'a str,
+            variables: Variables,
+        }
+
+        #[derive(Deserialize)]
+        struct LabelCreateEnvelope {
+            #[serde(rename = "issueLabelCreate")]
+            label_create: LabelPayload,
+        }
+
+        #[derive(Deserialize)]
+        struct LabelPayload {
+            success: bool,
+            issue_label: Option<IssueLabel>,
+            #[serde(rename = "userErrors", default)]
+            user_errors: Vec<ApiUserError>,
+        }
+
+        #[derive(Deserialize)]
+        struct ApiUserError {
+            message: Option<String>,
+        }
+
+        const MUTATION: &str = r#"
+            mutation IssueLabelCreate($input: IssueLabelCreateInput!) {
+                issueLabelCreate(input: $input) {
+                    success
+                    userErrors { message }
+                    issueLabel {
+                        id
+                        name
+                        color
+                    }
+                }
+            }
+        "#;
+
+        let response: GraphqlEnvelope<LabelCreateEnvelope> = self
+            .post(Request {
+                query: MUTATION,
+                variables: Variables { input },
+            })
+            .await?;
+
+        if let Some(errors) = response.errors {
+            return Err(GraphqlError::ResponseErrors(errors));
+        }
+
+        let payload = response.data.ok_or(GraphqlError::NotFound)?.label_create;
+        if !payload.success {
+            let message = payload
+                .user_errors
+                .into_iter()
+                .filter_map(|err| err.message)
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(GraphqlError::OperationFailed(if message.is_empty() {
+                "issue label create failed".into()
+            } else {
+                message
+            }));
+        }
+
+        payload.issue_label.ok_or(GraphqlError::NotFound)
+    }
+
+    /// Update an existing issue label.
+    pub async fn update_issue_label(
+        &self,
+        id: &str,
+        input: IssueLabelUpdateInput,
+    ) -> GraphqlResult<IssueLabel> {
+        #[derive(Serialize)]
+        struct Variables {
+            id: String,
+            input: IssueLabelUpdateInput,
+        }
+
+        #[derive(Serialize)]
+        struct Request<'a> {
+            query: &'a str,
+            variables: Variables,
+        }
+
+        #[derive(Deserialize)]
+        struct LabelUpdateEnvelope {
+            #[serde(rename = "issueLabelUpdate")]
+            label_update: LabelPayload,
+        }
+
+        #[derive(Deserialize)]
+        struct LabelPayload {
+            success: bool,
+            issue_label: Option<IssueLabel>,
+            #[serde(rename = "userErrors", default)]
+            user_errors: Vec<ApiUserError>,
+        }
+
+        #[derive(Deserialize)]
+        struct ApiUserError {
+            message: Option<String>,
+        }
+
+        const MUTATION: &str = r#"
+            mutation IssueLabelUpdate($id: String!, $input: IssueLabelUpdateInput!) {
+                issueLabelUpdate(id: $id, input: $input) {
+                    success
+                    userErrors { message }
+                    issueLabel {
+                        id
+                        name
+                        color
+                    }
+                }
+            }
+        "#;
+
+        let response: GraphqlEnvelope<LabelUpdateEnvelope> = self
+            .post(Request {
+                query: MUTATION,
+                variables: Variables {
+                    id: id.to_owned(),
+                    input,
+                },
+            })
+            .await?;
+
+        if let Some(errors) = response.errors {
+            return Err(GraphqlError::ResponseErrors(errors));
+        }
+
+        let payload = response.data.ok_or(GraphqlError::NotFound)?.label_update;
+        if !payload.success {
+            let message = payload
+                .user_errors
+                .into_iter()
+                .filter_map(|err| err.message)
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(GraphqlError::OperationFailed(if message.is_empty() {
+                "issue label update failed".into()
+            } else {
+                message
+            }));
+        }
+
+        payload.issue_label.ok_or(GraphqlError::NotFound)
     }
 
     async fn post<T, R>(&self, body: T) -> GraphqlResult<R>
@@ -486,6 +1509,7 @@ pub struct IssueDetail {
     pub assignee: Option<IssueAssignee>,
     pub priority: Option<i32>,
     pub labels: Option<IssueLabelConnection>,
+    pub team: Option<TeamSummary>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -574,11 +1598,216 @@ impl IssueCreateInput {
     }
 }
 
+/// Input used when updating an existing issue.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueUpdateInput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assignee_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label_ids: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+}
+
+/// Input used when creating a new comment.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommentCreateInput {
+    pub issue_id: String,
+    pub body: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct IssueListResponse {
     pub nodes: Vec<IssueSummary>,
     pub end_cursor: Option<String>,
     pub has_next_page: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProjectListParams {
+    pub first: usize,
+    pub filter: Option<Value>,
+    pub order_by: Option<Value>,
+    pub after: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProjectListResponse {
+    pub nodes: Vec<ProjectSummary>,
+    pub end_cursor: Option<String>,
+    pub has_next_page: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectCreateInput {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_date: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub team_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lead_id: Option<String>,
+}
+
+impl ProjectCreateInput {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            description: None,
+            state: None,
+            start_date: None,
+            target_date: None,
+            team_ids: Vec::new(),
+            lead_id: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectUpdateInput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_date: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub team_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lead_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CycleListParams {
+    pub first: usize,
+    pub filter: Option<Value>,
+    pub order_by: Option<Value>,
+    pub after: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CycleListResponse {
+    pub nodes: Vec<CycleSummary>,
+    pub end_cursor: Option<String>,
+    pub has_next_page: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CycleUpdateInput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub starts_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ends_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueLabelCreateInput {
+    pub team_id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueLabelUpdateInput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Comment {
+    pub id: String,
+    pub body: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub user: Option<UserSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserSummary {
+    pub id: String,
+    pub name: Option<String>,
+    pub display_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSummary {
+    pub id: String,
+    pub name: String,
+    pub state: Option<String>,
+    pub description: Option<String>,
+    pub start_date: Option<String>,
+    pub target_date: Option<String>,
+    pub status: Option<String>,
+    pub updated_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+    pub lead: Option<UserSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectDetail {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub state: Option<String>,
+    pub start_date: Option<String>,
+    pub target_date: Option<String>,
+    pub status: Option<String>,
+    pub updated_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+    pub lead: Option<UserSummary>,
+    pub teams: Vec<TeamSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CycleSummary {
+    pub id: String,
+    pub name: Option<String>,
+    pub number: i64,
+    pub starts_at: Option<String>,
+    pub ends_at: Option<String>,
+    pub state: Option<String>,
+    pub team: Option<TeamSummary>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

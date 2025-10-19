@@ -5,25 +5,44 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-use linear_core::graphql::{LinearGraphqlClient, TeamSummary, WorkflowStateSummary};
+use linear_core::graphql::{
+    CycleSummary, LinearGraphqlClient, ProjectSummary, TeamSummary, WorkflowStateSummary,
+};
+use linear_core::services::cycles::{CycleQueryOptions, CycleService, CycleSort};
 use linear_core::services::issues::{IssueListResult, IssueQueryOptions, IssueService};
+use linear_core::services::projects::{ProjectQueryOptions, ProjectService, ProjectSort};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
 use textwrap::wrap;
 use tokio::task::JoinHandle;
 
 const SPINNER_FRAMES: [char; 4] = ['-', '\\', '|', '/'];
 const PAGE_SIZE: usize = 20;
+const KEYMAP_TEXT: &str = "\
+Navigation  j/k or arrow keys move selection
+Focus       tab cycles issues -> teams -> states
+Refresh     r reload issues  c clear filters
+Filters     / contains filter  :team|:state|:contains
+Paging      ] next page  [ previous page  :page <n|next|prev>
+Teams       t cycle team filter  s cycle state filter
+Jump        view next|prev|first|last|<key>
+Command     : enter palette  Esc exits palette
+Projects    p show/update list
+Cycles      y show team cycles
+Help        ? toggle overlay  :help command
+Quit        q or Esc";
 
 pub async fn run(profile: &str) -> Result<()> {
     let session = crate::load_session(profile).await?;
-    let service = IssueService::new(
-        LinearGraphqlClient::from_session(&session).context("failed to build GraphQL client")?,
-    );
+    let client =
+        LinearGraphqlClient::from_session(&session).context("failed to build GraphQL client")?;
+    let issue_service = IssueService::new(client.clone());
+    let project_service = ProjectService::new(client.clone());
+    let cycle_service = CycleService::new(client);
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -32,7 +51,7 @@ pub async fn run(profile: &str) -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = App::new(service);
+    let mut app = App::new(issue_service, project_service, cycle_service);
     app.load_issues().await;
 
     let result = run_app(&mut terminal, &mut app).await;
@@ -62,6 +81,30 @@ async fn run_app<B: ratatui::backend::Backend>(
                     match key.code {
                         KeyCode::Char('?') | KeyCode::Esc => {
                             app.toggle_help_overlay();
+                        }
+                        _ => {}
+                    }
+                }
+                continue;
+            }
+
+            if app.show_projects_overlay {
+                if let Event::Key(key) = evt {
+                    match key.code {
+                        KeyCode::Char('p') | KeyCode::Esc => {
+                            app.close_projects_overlay();
+                        }
+                        _ => {}
+                    }
+                }
+                continue;
+            }
+
+            if app.show_cycles_overlay {
+                if let Event::Key(key) = evt {
+                    match key.code {
+                        KeyCode::Char('y') | KeyCode::Esc => {
+                            app.close_cycles_overlay();
                         }
                         _ => {}
                     }
@@ -129,6 +172,8 @@ async fn run_app<B: ratatui::backend::Backend>(
                     }
                     KeyCode::Char('[') => app.previous_page().await,
                     KeyCode::Char('?') => app.toggle_help_overlay(),
+                    KeyCode::Char('p') => app.open_projects_overlay().await,
+                    KeyCode::Char('y') => app.open_cycles_overlay().await,
                     KeyCode::Char(':') => app.enter_palette(),
                     _ => {}
                 },
@@ -173,6 +218,8 @@ async fn run_app<B: ratatui::backend::Backend>(
 
 struct App {
     service: IssueService,
+    project_service: ProjectService,
+    cycle_service: CycleService,
     issues: Vec<linear_core::graphql::IssueSummary>,
     detail: Option<linear_core::graphql::IssueDetail>,
     status_base: String,
@@ -192,10 +239,14 @@ struct App {
     palette_history_index: Option<usize>,
     title_contains: Option<String>,
     show_help_overlay: bool,
+    show_projects_overlay: bool,
+    show_cycles_overlay: bool,
     page: usize,
     has_next_page: bool,
     page_cache: HashMap<usize, PageData>,
     page_cursors: Vec<Option<String>>,
+    projects: Vec<ProjectSummary>,
+    cycles: Vec<CycleSummary>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -206,9 +257,15 @@ enum Focus {
 }
 
 impl App {
-    fn new(service: IssueService) -> Self {
+    fn new(
+        service: IssueService,
+        project_service: ProjectService,
+        cycle_service: CycleService,
+    ) -> Self {
         Self {
             service,
+            project_service,
+            cycle_service,
             issues: Vec::new(),
             detail: None,
             status_base: "Press 'r' to refresh, arrows to navigate, 'q' to quit".into(),
@@ -228,10 +285,14 @@ impl App {
             palette_history_index: None,
             title_contains: None,
             show_help_overlay: false,
+            show_projects_overlay: false,
+            show_cycles_overlay: false,
             page: 0,
             has_next_page: false,
             page_cache: HashMap::new(),
             page_cursors: Vec::new(),
+            projects: Vec::new(),
+            cycles: Vec::new(),
         }
     }
 
@@ -294,6 +355,70 @@ impl App {
         self.ensure_teams().await;
         self.ensure_states().await;
         self.load_issues_with_filters().await;
+    }
+
+    async fn open_projects_overlay(&mut self) {
+        self.show_help_overlay = false;
+        self.show_cycles_overlay = false;
+        self.set_spinner_status("Loading projects…");
+        let request = ProjectQueryOptions {
+            limit: 10,
+            after: None,
+            state: None,
+            status: None,
+            team_id: None,
+            sort: Some(ProjectSort::UpdatedDesc),
+        };
+        match self.project_service.list(request).await {
+            Ok(response) => {
+                self.projects = response.nodes;
+                self.show_projects_overlay = true;
+                self.set_status("Projects loaded (press p or Esc to close)", false);
+            }
+            Err(err) => {
+                self.projects.clear();
+                self.set_status(format!("Failed to load projects: {err}"), false);
+            }
+        }
+    }
+
+    fn close_projects_overlay(&mut self) {
+        if self.show_projects_overlay {
+            self.show_projects_overlay = false;
+            self.set_status("Projects overlay closed", false);
+        }
+    }
+
+    async fn open_cycles_overlay(&mut self) {
+        self.show_help_overlay = false;
+        self.show_projects_overlay = false;
+        let team_id = self.current_team_id();
+        self.set_spinner_status("Loading cycles…");
+        let request = CycleQueryOptions {
+            limit: 10,
+            after: None,
+            team_id,
+            state: None,
+            sort: Some(CycleSort::StartDesc),
+        };
+        match self.cycle_service.list(request).await {
+            Ok(response) => {
+                self.cycles = response.nodes;
+                self.show_cycles_overlay = true;
+                self.set_status("Cycles loaded (press y or Esc to close)", false);
+            }
+            Err(err) => {
+                self.cycles.clear();
+                self.set_status(format!("Failed to load cycles: {err}"), false);
+            }
+        }
+    }
+
+    fn close_cycles_overlay(&mut self) {
+        if self.show_cycles_overlay {
+            self.show_cycles_overlay = false;
+            self.set_status("Cycles overlay closed", false);
+        }
     }
 
     async fn next_page(&mut self) {
@@ -1191,7 +1316,7 @@ fn render_app(frame: &mut Frame, app: &App) {
                 Constraint::Percentage(40),
                 Constraint::Length(1),
                 Constraint::Length(1),
-                Constraint::Length(1),
+                Constraint::Length(11),
             ]
             .as_ref(),
         )
@@ -1264,13 +1389,13 @@ fn render_app(frame: &mut Frame, app: &App) {
 
     let help_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
+        .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
         .split(right_chunks[4]);
 
-    let help = Paragraph::new(
-        "Commands: r=refresh  c=clear  tab=focus  j/k=move  t=team  s=state  /=contains  [/] page  view next/prev/<key>  reload  :team/:state/:contains  q=quit",
-    )
-    .style(Style::default());
+    let help = Paragraph::new(KEYMAP_TEXT)
+        .block(Block::default().title("Keymap").borders(Borders::ALL))
+        .style(Style::default())
+        .wrap(Wrap { trim: true });
     frame.render_widget(help, help_chunks[0]);
 
     if app.palette_active {
@@ -1332,10 +1457,12 @@ fn render_app(frame: &mut Frame, app: &App) {
             Line::from("  ] next page  [ previous page"),
             Line::from("  t / s cycle team or state filters"),
             Line::from("  view next/prev/first/last/<key> jumps to an issue"),
+            Line::from("CLI:"),
+            Line::from("  linear <command> --help shows flags and usage"),
             Line::from("Filters:"),
             Line::from("  / opens contains filter  :team/:state/:contains"),
             Line::from("  clear resets filters  contains clear drops title filter"),
-            Line::from("  help opens this overlay"),
+            Line::from("  help or :help opens this overlay"),
             Line::from("Close help with ? or Esc"),
         ];
         let help_overlay = Paragraph::new(help_lines)
@@ -1343,6 +1470,71 @@ fn render_app(frame: &mut Frame, app: &App) {
             .style(Style::default().fg(Color::Yellow));
         frame.render_widget(Clear, overlay_area);
         frame.render_widget(help_overlay, overlay_area);
+    }
+
+    if app.show_projects_overlay {
+        let overlay_width = layout[1].width.min(90).max(50);
+        let overlay_height = layout[1].height.min(14).max(8);
+        let overlay_area = centered_rect(overlay_width, overlay_height, layout[1]);
+        let mut project_lines = Vec::new();
+        if app.projects.is_empty() {
+            project_lines.push(Line::from("No projects available"));
+        } else {
+            project_lines.push(Line::from("Latest projects (press p or Esc to close):"));
+            for project in &app.projects {
+                let lead = project
+                    .lead
+                    .as_ref()
+                    .and_then(|l| l.display_name.as_ref().or(l.name.as_ref()))
+                    .map(|s| s.as_str())
+                    .unwrap_or("-");
+                project_lines.push(Line::from(format!(
+                    "{} [{}] lead: {}  target: {}",
+                    project.name,
+                    project.state.as_deref().unwrap_or("-"),
+                    lead,
+                    project.target_date.as_deref().unwrap_or("-")
+                )));
+            }
+        }
+        let projects_overlay = Paragraph::new(project_lines)
+            .block(Block::default().title("Projects").borders(Borders::ALL))
+            .style(Style::default().fg(Color::Green))
+            .wrap(Wrap { trim: true });
+        frame.render_widget(Clear, overlay_area);
+        frame.render_widget(projects_overlay, overlay_area);
+    }
+
+    if app.show_cycles_overlay {
+        let overlay_width = layout[1].width.min(80).max(40);
+        let overlay_height = layout[1].height.min(12).max(7);
+        let overlay_area = centered_rect(overlay_width, overlay_height, layout[1]);
+        let mut cycle_lines = Vec::new();
+        if app.cycles.is_empty() {
+            cycle_lines.push(Line::from("No cycles available (press y or Esc to close)"));
+        } else {
+            cycle_lines.push(Line::from("Recent cycles (press y or Esc to close):"));
+            for cycle in &app.cycles {
+                cycle_lines.push(Line::from(format!(
+                    "#{} {} {} → {} [{}]",
+                    cycle.number,
+                    cycle
+                        .team
+                        .as_ref()
+                        .map(|t| t.key.clone())
+                        .unwrap_or_else(|| "-".into()),
+                    cycle.starts_at.as_deref().unwrap_or("-"),
+                    cycle.ends_at.as_deref().unwrap_or("-"),
+                    cycle.state.as_deref().unwrap_or("-")
+                )));
+            }
+        }
+        let cycles_overlay = Paragraph::new(cycle_lines)
+            .block(Block::default().title("Cycles").borders(Borders::ALL))
+            .style(Style::default().fg(Color::LightBlue))
+            .wrap(Wrap { trim: true });
+        frame.render_widget(Clear, overlay_area);
+        frame.render_widget(cycles_overlay, overlay_area);
     }
 }
 

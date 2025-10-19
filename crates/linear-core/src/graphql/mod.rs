@@ -1,6 +1,10 @@
 mod client;
 
 pub use client::{
-    GraphqlError, GraphqlResult, IssueCreateInput, IssueDetail, IssueListParams, IssueListResponse,
-    IssueSummary, LinearGraphqlClient, TeamSummary, Viewer, WorkflowStateSummary,
+    Comment, CommentCreateInput, CycleListParams, CycleListResponse, CycleSummary,
+    CycleUpdateInput, GraphqlError, GraphqlResult, IssueCreateInput, IssueDetail, IssueLabel,
+    IssueLabelCreateInput, IssueLabelUpdateInput, IssueListParams, IssueListResponse, IssueSummary,
+    IssueUpdateInput, LinearGraphqlClient, ProjectCreateInput, ProjectDetail, ProjectListParams,
+    ProjectListResponse, ProjectSummary, ProjectUpdateInput, TeamSummary, Viewer,
+    WorkflowStateSummary,
 };

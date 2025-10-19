@@ -6,8 +6,9 @@ use serde_json::{json, Map, Value};
 use tokio::sync::RwLock;
 
 use crate::graphql::{
-    GraphqlResult, IssueCreateInput, IssueDetail, IssueListParams, IssueListResponse, IssueSummary,
-    LinearGraphqlClient, TeamSummary, WorkflowStateSummary,
+    Comment, CommentCreateInput, GraphqlResult, IssueCreateInput, IssueDetail, IssueListParams,
+    IssueListResponse, IssueSummary, IssueUpdateInput, LinearGraphqlClient, TeamSummary,
+    WorkflowStateSummary,
 };
 
 /// Provides higher-level helpers around Linear issues.
@@ -121,6 +122,31 @@ impl IssueService {
         input.priority = priority;
 
         self.client.create_issue(input).await
+    }
+
+    pub async fn update(
+        &self,
+        issue_id: &str,
+        input: IssueUpdateInput,
+    ) -> GraphqlResult<IssueDetail> {
+        self.client.update_issue(issue_id, input).await
+    }
+
+    pub async fn archive(&self, issue_id: &str, archive: bool) -> GraphqlResult<IssueDetail> {
+        self.client.archive_issue(issue_id, archive).await
+    }
+
+    pub async fn delete(&self, issue_id: &str) -> GraphqlResult<bool> {
+        self.client.delete_issue(issue_id).await
+    }
+
+    pub async fn comment(&self, issue_id: &str, body: &str) -> GraphqlResult<Comment> {
+        self.client
+            .create_comment(CommentCreateInput {
+                issue_id: issue_id.to_owned(),
+                body: body.to_owned(),
+            })
+            .await
     }
 }
 
