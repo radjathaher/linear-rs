@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use tokio::sync::RwLock;
 
@@ -24,9 +25,14 @@ impl IssueService {
         }
     }
 
-    pub async fn list(&self, options: IssueQueryOptions) -> GraphqlResult<Vec<IssueSummary>> {
+    pub async fn list(&self, options: IssueQueryOptions) -> GraphqlResult<IssueListResult> {
         let params = options.into_params();
-        self.client.list_issues(params).await
+        let response = self.client.list_issues(params).await?;
+        Ok(IssueListResult {
+            issues: response.nodes,
+            end_cursor: response.end_cursor,
+            has_next_page: response.has_next_page,
+        })
     }
 
     pub async fn get_by_key(&self, key: &str) -> GraphqlResult<IssueDetail> {
@@ -104,7 +110,7 @@ impl IssueService {
 }
 
 /// Options used to constrain issue queries.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct IssueQueryOptions {
     pub limit: usize,
     pub team_id: Option<String>,
@@ -114,6 +120,13 @@ pub struct IssueQueryOptions {
     pub label_ids: Vec<String>,
     pub title_contains: Option<String>,
     pub after: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IssueListResult {
+    pub issues: Vec<IssueSummary>,
+    pub end_cursor: Option<String>,
+    pub has_next_page: bool,
 }
 
 impl IssueQueryOptions {

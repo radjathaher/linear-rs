@@ -199,7 +199,7 @@ impl LinearGraphqlClient {
     }
 
     /// Fetch a list of recent issues.
-    pub async fn list_issues(&self, params: IssueListParams) -> GraphqlResult<Vec<IssueSummary>> {
+    pub async fn list_issues(&self, params: IssueListParams) -> GraphqlResult<IssueListResponse> {
         #[derive(Serialize)]
         struct Variables {
             first: i64,
@@ -217,13 +217,15 @@ impl LinearGraphqlClient {
 
         #[derive(Deserialize)]
         struct IssuesEnvelope {
-            issues: IssueConnection<IssueSummary>,
+            issues: IssueEdgeConnection<IssueSummary>,
         }
 
         const QUERY: &str = r#"
             query ListIssues($first: Int!, $filter: IssueFilterInput, $after: String) {
                 issues(first: $first, filter: $filter, orderBy: updatedAt, sortOrder: Desc, after: $after) {
-                    nodes {
+                    edges {
+                        cursor
+                        node {
                         id
                         identifier
                         title
@@ -233,6 +235,11 @@ impl LinearGraphqlClient {
                         updatedAt
                         state { id name type }
                         assignee { id name displayName handle }
+                    }
+                    }
+                    pageInfo {
+                        hasNextPage
+                        endCursor
                     }
                 }
             }
@@ -253,8 +260,13 @@ impl LinearGraphqlClient {
             return Err(GraphqlError::ResponseErrors(errors));
         }
 
-        let data = response.data.ok_or(GraphqlError::NotFound)?.issues.nodes;
-        Ok(data)
+        let data = response.data.ok_or(GraphqlError::NotFound)?.issues;
+        let nodes = data.edges.into_iter().map(|edge| edge.node).collect();
+        Ok(IssueListResponse {
+            nodes,
+            end_cursor: data.page_info.end_cursor,
+            has_next_page: data.page_info.has_next_page,
+        })
     }
 
     /// Fetch a single issue by its identifier (e.g. "ENG-123").
@@ -441,6 +453,13 @@ pub struct IssueListParams {
     pub after: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct IssueListResponse {
+    pub nodes: Vec<IssueSummary>,
+    pub end_cursor: Option<String>,
+    pub has_next_page: bool,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct GraphqlResponseError {
     pub message: String,
@@ -451,6 +470,27 @@ pub struct GraphqlResponseError {
 #[derive(Debug, Deserialize)]
 struct IssueConnection<T> {
     nodes: Vec<T>,
+}
+
+#[derive(Debug, Deserialize)]
+struct IssueEdgeConnection<T> {
+    edges: Vec<IssueEdge<T>>,
+    #[serde(rename = "pageInfo")]
+    page_info: PageInfo,
+}
+
+#[derive(Debug, Deserialize)]
+struct IssueEdge<T> {
+    _cursor: String,
+    node: T,
+}
+
+#[derive(Debug, Deserialize)]
+struct PageInfo {
+    #[serde(rename = "hasNextPage")]
+    has_next_page: bool,
+    #[serde(rename = "endCursor")]
+    end_cursor: Option<String>,
 }
 
 #[cfg(test)]
@@ -502,19 +542,26 @@ mod tests {
             then.status(200).json_body_obj(&serde_json::json!({
                 "data": {
                     "issues": {
-                        "nodes": [
+                        "edges": [
                             {
-                                "id": "issue-1",
-                                "identifier": "ENG-1",
-                                "title": "Fix login bug",
-                                "url": "https://linear.app/eng-1",
-                                "priority": 1,
-                                "createdAt": "2024-07-01T12:00:00.000Z",
-                                "updatedAt": "2024-07-02T12:00:00.000Z",
-                                "state": { "id": "state-1", "name": "Todo", "type": "backlog" },
-                                "assignee": { "id": "user-1", "name": "Ada", "displayName": "Ada", "handle": "ada" }
+                                "cursor": "cursor-1",
+                                "node": {
+                                    "id": "issue-1",
+                                    "identifier": "ENG-1",
+                                    "title": "Fix login bug",
+                                    "url": "https://linear.app/eng-1",
+                                    "priority": 1,
+                                    "createdAt": "2024-07-01T12:00:00.000Z",
+                                    "updatedAt": "2024-07-02T12:00:00.000Z",
+                                    "state": { "id": "state-1", "name": "Todo", "type": "backlog" },
+                                    "assignee": { "id": "user-1", "name": "Ada", "displayName": "Ada", "handle": "ada" }
+                                }
                             }
-                        ]
+                        ],
+                        "pageInfo": {
+                            "hasNextPage": false,
+                            "endCursor": "cursor-1"
+                        }
                     }
                 }
             }));
@@ -530,12 +577,15 @@ mod tests {
             .list_issues(IssueListParams {
                 first: 5,
                 filter: None,
+                after: None,
             })
             .await
             .unwrap();
         mock.assert();
-        assert_eq!(issues.len(), 1);
-        assert_eq!(issues[0].identifier, "ENG-1");
+        assert_eq!(issues.nodes.len(), 1);
+        assert_eq!(issues.nodes[0].identifier, "ENG-1");
+        assert_eq!(issues.end_cursor.as_deref(), Some("cursor-1"));
+        assert!(!issues.has_next_page);
     }
 
     #[tokio::test]

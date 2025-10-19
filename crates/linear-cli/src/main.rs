@@ -446,6 +446,8 @@ async fn issue_list(args: IssueListArgs) -> Result<()> {
         state_id: args.state_id.clone(),
         label_ids: args.label_ids.clone(),
         title_contains: args.contains.clone(),
+        after: None,
+        ..Default::default()
     };
 
     if options.team_id.is_none() {
@@ -483,7 +485,10 @@ async fn issue_list(args: IssueListArgs) -> Result<()> {
     if args.json {
         println!("{}", serde_json::to_string_pretty(&issues)?);
     } else {
-        render_issue_list(&issues);
+        render_issue_list(&issues.issues);
+        if issues.has_next_page {
+            eprintln!("… more issues available (use pagination commands in the TUI)");
+        }
     }
 
     Ok(())
