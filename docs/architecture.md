@@ -34,7 +34,7 @@ linear-rs/
 | --- | --- |
 | **CLI** | Built with `clap` derive. Subcommands mirror the shared services (`issue`, `project`, `cycle`, `label`, `team`, `state`, `auth`, `user`). Every nested command has `--help`, JSON output toggles, and consistent pagination/filter/sort flags (see `docs/cli.md`). CLI flows are intentionally synchronous and surface friendly error messages. |
 | **Output helpers** | When not in JSON mode, the CLI prints fixed-width tables and multi-line detail blocks with Markdown stripped via `pulldown-cmark`, matching terminal width where possible. |
-| **TUI** | Ratatui-based dashboard showing issues, teams, and states. Enhancements in this iteration include: persistent keymap pane, `p` overlay for the latest projects, `y` overlay for cycles scoped to the selected team, command palette history, help overlays, an activity timeline (comments + history), and a nested sub-issue tree with palette shortcuts. |
+| **TUI** | Ratatui-based dashboard showing issues, teams, and states. Enhancements in this iteration include: persistent keymap pane, `p` overlay for the latest projects, `y` overlay for cycles scoped to the selected team, command palette history, help overlays, an activity timeline (comments + history), and a nested sub-issue tree with palette shortcuts. Detail tab selection is remembered per issue so returning to an issue restores the previously viewed tab. |
 | **Command dispatch** | `main.rs` translates parsed Clap args into service calls, performing any necessary ID resolution (e.g. translating team keys/state names to IDs before hitting GraphQL). |
 
 ## Request Flow
