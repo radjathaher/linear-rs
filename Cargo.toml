@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "crates/linear-core",
-    "crates/linear-cli",
+    "crates/linear",
     "crates/linear-tui",
 ]
 resolver = "2"

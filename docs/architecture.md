@@ -13,7 +13,7 @@ linear-rs/
 ├── docs/                # design docs, specs
 ├── crates/
 │   ├── linear-core/     # shared library crate (auth, GraphQL, domain)
-│   ├── linear-cli/      # CLI binary crate (clap-based)
+│   ├── linear/          # CLI binary crate (clap-based)
 │   └── linear-tui/      # Ratatui application
 ```
 
@@ -27,7 +27,7 @@ linear-rs/
 - **Configuration** – Loads workspace defaults (team filters, default view presets, UI preferences) and user profiles to enable multi-workspace switching.
 - **Event pipeline** – Optional module for webhook ingestion or polling diffs to keep local caches in sync.
 
-### `linear-cli`
+### `linear`
 - Depends on `clap` derive for command tree (`linear auth login`, `linear auth logout`, `linear issue list`, `linear issue view <issue-key>`, `linear issue create`, `linear project list`, `linear cycle list`, `linear sync`).
 - `linear auth login` supports browser (`--browser`), manual (`--manual`), API key (`--api-key`), and client-credentials (`--client-credentials --scope`) modes with environment-driven defaults (`LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET`, `LINEAR_REDIRECT_URI`, optional `LINEAR_SCOPES`).
 - `linear user me` surfaces the authenticated account via the GraphQL `viewer` query; `linear issue list/view` consume the shared GraphQL services for recent issues and detailed inspection, including friendly filters (`--team`, `--state`, `--assignee-id`, `--label-id`) that resolve human inputs to IDs.
@@ -101,7 +101,7 @@ linear-rs/
    - Token refresh + persistence (config/credential store).
    - Auto-detect preferred flow based on environment (`$DISPLAY`, TTY).
 3. Stand up GraphQL client wrappers and schema codegen; cover `viewer` + issue list queries with mocked integration tests.
-4. ~~Build initial `linear-cli` commands: `auth login`, `issue list`, `issue view <id>`, `issue create`.~~ Done October 19, 2025 (`linear issue create` added with team/state resolution helpers).
+4. ~~Build initial CLI commands (`linear` crate): `auth login`, `issue list`, `issue view <id>`, `issue create`.~~ Done October 19, 2025 (`linear issue create` added with team/state resolution helpers).
 5. Prototype `linear-tui` core loop: app skeleton, issue list panel, detail panel, key bindings (`j/k`, `/`, `q`).
 6. Expand testing + docs: CLI help audit, README quickstart, developer docs, and ensure integration test coverage.
 7. Push changes to `github.com/radjathaher/linear-rs` after each atomic milestone.
