@@ -174,6 +174,12 @@ async fn run_app<B: ratatui::backend::Backend>(
                                 app.previous_page().await;
                             }
                         }
+                        KeyCode::Char('.') if !modifiers.contains(KeyModifiers::CONTROL) => {
+                            app.cycle_detail_tab(1);
+                        }
+                        KeyCode::Char(',') if !modifiers.contains(KeyModifiers::CONTROL) => {
+                            app.cycle_detail_tab(-1);
+                        }
                         KeyCode::Down | KeyCode::Char('j') => match app.focus() {
                             Focus::Issues => app.move_issue_selection(1).await,
                             Focus::Teams => app.move_team_selection(1).await,
