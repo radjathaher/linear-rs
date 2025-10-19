@@ -27,6 +27,8 @@ Keys:
 - `t`/`s` cycle team/state filters
 - `:` open command palette (history with ↑/↓, commands: `team <key>`, `state <name>`, `clear`, `reload`)
 
+CLI issue detail output strips basic Markdown (via `pulldown-cmark`) and wraps descriptions to 80 characters for readability.
+
 ## Development
 - `cargo fmt`, `cargo clippy --workspace`
 - `cargo check` runs quickly across all crates

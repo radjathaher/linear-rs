@@ -10,6 +10,7 @@ use linear_core::graphql::{
     IssueDetail, IssueSummary, LinearGraphqlClient, TeamSummary, Viewer, WorkflowStateSummary,
 };
 use linear_core::services::issues::{IssueQueryOptions, IssueService};
+use pulldown_cmark::{Event, Options, Parser as MarkdownParser, Tag, TagEnd};
 use serde_json::json;
 use textwrap::wrap;
 use tokio::task;
@@ -602,10 +603,12 @@ fn render_issue_detail(issue: &IssueDetail) {
     println!("Updated   : {}", issue.updated_at.to_rfc3339());
 
     if let Some(description) = &issue.description {
-        if !description.trim().is_empty() {
+        let trimmed = description.trim();
+        if !trimmed.is_empty() {
             println!();
             let width = 80;
-            for line in wrap(description.trim(), width) {
+            let plain = markdown_to_text(trimmed);
+            for line in wrap(plain.trim(), width) {
                 println!("{}", line);
             }
             println!();
@@ -655,4 +658,63 @@ fn render_state_list(states: &[WorkflowStateSummary]) {
             truncate(&state.id, 36)
         );
     }
+}
+
+fn markdown_to_text(input: &str) -> String {
+    let mut options = Options::empty();
+    options.insert(Options::ENABLE_STRIKETHROUGH);
+    let parser = MarkdownParser::new_ext(input, options);
+    let mut out = String::new();
+    let mut need_space = false;
+    for event in parser {
+        match event {
+            Event::Text(text) | Event::Code(text) => {
+                if need_space && !out.ends_with([' ', '\n']) {
+                    out.push(' ');
+                }
+                out.push_str(&text);
+                need_space = true;
+            }
+            Event::SoftBreak => {
+                out.push(' ');
+                need_space = false;
+            }
+            Event::HardBreak => {
+                out.push('\n');
+                need_space = false;
+            }
+            Event::Start(Tag::Paragraph) => {
+                if !out.ends_with('\n') && !out.is_empty() {
+                    out.push('\n');
+                }
+                need_space = false;
+            }
+            Event::End(TagEnd::Paragraph) => {
+                if !out.ends_with('\n') {
+                    out.push('\n');
+                }
+                need_space = false;
+            }
+            Event::Start(Tag::List(_)) => {
+                if !out.ends_with('\n') && !out.is_empty() {
+                    out.push('\n');
+                }
+            }
+            Event::Start(Tag::Item) => {
+                if !out.ends_with('\n') && !out.is_empty() {
+                    out.push('\n');
+                }
+                out.push_str("- ");
+                need_space = false;
+            }
+            Event::End(TagEnd::Item) => {
+                if !out.ends_with('\n') {
+                    out.push('\n');
+                }
+                need_space = false;
+            }
+            _ => {}
+        }
+    }
+    out.trim().to_string()
 }
