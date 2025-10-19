@@ -1,6 +1,9 @@
-//! Core library for shared Linear API integrations.
+//! Core library for shared Linear integrations used by both CLI and TUI front-ends.
 
-/// Placeholder function to ensure crate compiles during scaffolding.
+pub mod auth;
+pub mod config;
+
+/// Entry point used by early scaffolding binaries until real initialization exists.
 pub fn init() -> anyhow::Result<()> {
     Ok(())
 }
