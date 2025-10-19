@@ -22,6 +22,12 @@
 └────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+### Detail Tabs
+- **Summary** – Identifier, state, assignee, labels, team, timestamps, and external URL for the selected issue.
+- **Description** – Markdown body wrapped to the viewport; displays "(no description)" when the field is empty.
+- **Activity** – Combined stream of newest comments and change history, grouped by calendar day with tree branches and local timestamps.
+- **Sub-issues** – Recursive ASCII tree of child issues showing state, assignee, priority, and team; palette `sub-issues` jumps straight here and the active tab is remembered per issue.
+
 ### States & Overlays
 - Command palette replaces keymap column with prompt, suggestions, history.
 - Projects overlay: read-only list scoped to current team, toggled with `o`.
