@@ -205,6 +205,8 @@ impl LinearGraphqlClient {
             first: i64,
             #[serde(skip_serializing_if = "Option::is_none")]
             filter: Option<Value>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            after: Option<String>,
         }
 
         #[derive(Serialize)]
@@ -219,8 +221,8 @@ impl LinearGraphqlClient {
         }
 
         const QUERY: &str = r#"
-            query ListIssues($first: Int!, $filter: IssueFilterInput) {
-                issues(first: $first, filter: $filter, orderBy: updatedAt, sortOrder: Desc) {
+            query ListIssues($first: Int!, $filter: IssueFilterInput, $after: String) {
+                issues(first: $first, filter: $filter, orderBy: updatedAt, sortOrder: Desc, after: $after) {
                     nodes {
                         id
                         identifier
@@ -242,6 +244,7 @@ impl LinearGraphqlClient {
                 variables: Variables {
                     first: params.first as i64,
                     filter: params.filter,
+                    after: params.after,
                 },
             })
             .await?;
@@ -435,6 +438,7 @@ pub struct WorkflowStateSummary {
 pub struct IssueListParams {
     pub first: usize,
     pub filter: Option<Value>,
+    pub after: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

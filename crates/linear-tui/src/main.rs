@@ -19,6 +19,7 @@ use tokio::task::JoinHandle;
 
 const DEFAULT_PROFILE: &str = "default";
 const SPINNER_FRAMES: [char; 4] = ['-', '\\', '|', '/'];
+const PAGE_SIZE: usize = 20;
 
 fn main() -> Result<()> {
     let runtime = Runtime::new()?;
@@ -126,6 +127,14 @@ async fn run_app<B: ratatui::backend::Backend>(
                     KeyCode::Char('s') => app.move_state_selection(1).await,
                     KeyCode::Char('/') => app.enter_contains_palette(),
                     KeyCode::Char('c') => app.clear_all_filters().await,
+                    KeyCode::Char(']') => {
+                        if app.has_next_page {
+                            app.next_page().await;
+                        } else {
+                            app.set_status("No more issues", false);
+                        }
+                    }
+                    KeyCode::Char('[') => app.previous_page().await,
                     KeyCode::Char('?') => app.toggle_help_overlay(),
                     KeyCode::Char(':') => app.enter_palette(),
                     _ => {}
@@ -190,6 +199,8 @@ struct App {
     palette_history_index: Option<usize>,
     title_contains: Option<String>,
     show_help_overlay: bool,
+    page: usize,
+    has_next_page: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -222,6 +233,8 @@ impl App {
             palette_history_index: None,
             title_contains: None,
             show_help_overlay: false,
+            page: 0,
+            has_next_page: false,
         }
     }
 
@@ -259,6 +272,7 @@ impl App {
         parts.push(format!("team={}", team));
         parts.push(format!("state={}", state));
         parts.push(format!("title~{}", contains));
+        parts.push(format!("page={}", self.page + 1));
         if let Some(issue) = self.issues.get(self.selected) {
             parts.push(format!("selected={}", issue.identifier));
         }
@@ -278,6 +292,39 @@ impl App {
         self.load_issues_with_filters().await;
     }
 
+    async fn next_page(&mut self) {
+        let target = self.page + 1;
+        self.selected = 0;
+        self.issues.clear();
+        self.detail = None;
+        self.page = target;
+        self.load_issues_with_filters().await;
+        if self.page != target {
+            self.set_status("No more issues", false);
+        }
+    }
+
+    async fn previous_page(&mut self) {
+        if self.page == 0 {
+            self.set_status("Already at first page", false);
+            return;
+        }
+        self.selected = 0;
+        self.issues.clear();
+        self.detail = None;
+        let target = self.page - 1;
+        self.page = target;
+        self.load_issues_with_filters().await;
+    }
+
+    async fn go_to_page(&mut self, page: usize) {
+        self.selected = 0;
+        self.issues.clear();
+        self.detail = None;
+        self.page = page;
+        self.load_issues_with_filters().await;
+    }
+
     fn current_contains(&self) -> Option<String> {
         self.title_contains.clone()
     }
@@ -289,15 +336,17 @@ impl App {
             .issues
             .get(self.selected)
             .map(|issue| issue.identifier.clone());
+        let limit = (PAGE_SIZE * (self.page + 1)).min(200);
         match fetch_issue_summaries(
             &self.service,
             self.current_team_id(),
             self.current_state_id(),
             contains,
+            limit,
         )
         .await
         {
-            Ok((issues, detail)) => {
+            Ok(issues) => {
                 if issues.is_empty() {
                     self.issues = issues;
                     self.detail = None;
@@ -313,9 +362,32 @@ impl App {
                     return;
                 }
 
+                let total = issues.len();
+                let mut page = self.page;
+                let mut page_start = page * PAGE_SIZE;
+                if total <= page_start && total > 0 {
+                    page = (total - 1) / PAGE_SIZE;
+                    page_start = page * PAGE_SIZE;
+                }
+                let end = (page_start + PAGE_SIZE).min(total);
+                let mut page_issues = if page_start < end {
+                    issues[page_start..end].to_vec()
+                } else {
+                    Vec::new()
+                };
+
+                if page_issues.is_empty() && total > 0 {
+                    page = 0;
+                    let end = PAGE_SIZE.min(total);
+                    page_issues = issues[0..end].to_vec();
+                }
+
+                self.page = page;
+                self.has_next_page = total == limit;
+
                 let mut selected_index = 0;
                 if let Some(prev_key) = previous_key.as_ref() {
-                    if let Some(idx) = issues
+                    if let Some(idx) = page_issues
                         .iter()
                         .position(|issue| issue.identifier.eq_ignore_ascii_case(prev_key))
                     {
@@ -323,36 +395,27 @@ impl App {
                     }
                 }
 
-                self.issues = issues;
+                if selected_index >= page_issues.len() {
+                    selected_index = 0;
+                }
+
+                self.issues = page_issues;
                 self.selected = selected_index;
-                let selected_key = self.issues[self.selected].identifier.clone();
 
-                let detail_matches = detail
-                    .as_ref()
-                    .map(|d| d.identifier.eq_ignore_ascii_case(&selected_key))
-                    .unwrap_or(false);
-
-                if detail_matches {
-                    self.detail = detail;
-                    self.set_status(
-                        format!(
-                            "Loaded {} issues (team: {}, state: {}, selected: {})",
-                            self.issues.len(),
-                            self.current_team_label(),
-                            self.current_state_label(),
-                            selected_key
-                        ),
-                        false,
-                    );
-                } else {
+                if let Some(issue) = self.issues.get(self.selected) {
+                    let selected_key = issue.identifier.clone();
                     self.detail = None;
                     self.queue_detail_fetch(selected_key.clone());
                     self.set_spinner_status(format!(
-                        "Loading {}... (team: {}, state: {})",
+                        "Loading {}... (team: {}, state: {}, page: {})",
                         selected_key,
                         self.current_team_label(),
-                        self.current_state_label()
+                        self.current_state_label(),
+                        self.page + 1
                     ));
+                } else {
+                    self.detail = None;
+                    self.set_status("No issues loaded", false);
                 }
             }
             Err(err) => {
@@ -676,6 +739,21 @@ impl App {
             lines.push(Line::from("view first"));
             lines.push(Line::from("view last"));
             lines
+        } else if let Some(rest) = input.strip_prefix("page ") {
+            let term = rest.trim();
+            let mut lines = Vec::new();
+            if term.is_empty() {
+                lines.push(Line::from("page next"));
+                lines.push(Line::from("page prev"));
+                lines.push(Line::from("page first"));
+                lines.push(Line::from("page last"));
+                lines.push(Line::from(format!("page {}", self.page + 1)));
+            } else if term.chars().all(|c| c.is_ascii_digit()) {
+                lines.push(Line::from(format!("page {}", term)));
+            } else {
+                lines.push(Line::from("page <number>"));
+            }
+            lines
         } else {
             vec![
                 Line::from("team <key>"),
@@ -687,6 +765,8 @@ impl App {
                 Line::from("view prev"),
                 Line::from("view first"),
                 Line::from("view last"),
+                Line::from("page next"),
+                Line::from("page prev"),
                 Line::from("clear"),
                 Line::from("reload"),
                 Line::from("help"),
@@ -872,6 +952,52 @@ impl App {
             return;
         }
 
+        if let Some(arg) = cmd.strip_prefix("page ") {
+            let arg = arg.trim();
+            if arg.eq_ignore_ascii_case("next") {
+                if self.has_next_page {
+                    self.next_page().await;
+                } else {
+                    self.set_status("No more issues", false);
+                }
+                return;
+            } else if arg.eq_ignore_ascii_case("prev") || arg.eq_ignore_ascii_case("previous") {
+                self.previous_page().await;
+                return;
+            } else if arg.eq_ignore_ascii_case("first") {
+                if self.page == 0 {
+                    self.set_status("Already at first page", false);
+                } else {
+                    self.go_to_page(0).await;
+                }
+                return;
+            } else if arg.eq_ignore_ascii_case("last") {
+                // optimistic: increment until no more results
+                let target = self.page + 1;
+                self.page = target;
+                self.selected = 0;
+                self.issues.clear();
+                self.detail = None;
+                self.load_issues_with_filters().await;
+                return;
+            } else if let Ok(num) = arg.parse::<usize>() {
+                if num == 0 {
+                    self.set_status("Pages start at 1", false);
+                } else {
+                    let target = num - 1;
+                    if target == self.page {
+                        self.set_status(format!("Already on page {}", num), false);
+                    } else {
+                        self.go_to_page(target).await;
+                    }
+                }
+                return;
+            } else {
+                self.set_status("Usage: page <next|prev|number>", false);
+                return;
+            }
+        }
+
         match cmd {
             "" => self.set_status("Command mode exited", false),
             "clear" => {
@@ -917,28 +1043,18 @@ async fn fetch_issue_summaries(
     team_id: Option<String>,
     state_id: Option<String>,
     contains: Option<String>,
-) -> Result<(
-    Vec<linear_core::graphql::IssueSummary>,
-    Option<linear_core::graphql::IssueDetail>,
-)> {
-    let issues = service
+    limit: usize,
+) -> Result<Vec<linear_core::graphql::IssueSummary>> {
+    service
         .list(IssueQueryOptions {
-            limit: 20,
+            limit,
             team_id,
             state_id,
             title_contains: contains,
             ..Default::default()
         })
         .await
-        .context("failed to fetch issues")?;
-
-    let detail = if let Some(first) = issues.get(0) {
-        fetch_issue_detail(service.clone(), first.identifier.clone()).await?
-    } else {
-        None
-    };
-
-    Ok((issues, detail))
+        .context("failed to fetch issues")
 }
 
 async fn fetch_issue_detail(
@@ -1070,7 +1186,7 @@ fn render_app(frame: &mut Frame, app: &App) {
         .split(right_chunks[4]);
 
     let help = Paragraph::new(
-        "Commands: r=refresh  c=clear filters  tab=focus  j/k=move  t=team  s=state  /=contains  view next/prev/<key>  reload  :team/:state/:contains  q=quit",
+        "Commands: r=refresh  c=clear  tab=focus  j/k=move  t=team  s=state  /=contains  [/] page  view next/prev/<key>  reload  :team/:state/:contains  q=quit",
     )
     .style(Style::default());
     frame.render_widget(help, help_chunks[0]);
@@ -1131,6 +1247,7 @@ fn render_app(frame: &mut Frame, app: &App) {
             Line::from("  tab cycles focus between issues/teams/states"),
             Line::from("Actions:"),
             Line::from("  r refreshes issues   c clears filters   q exits"),
+            Line::from("  ] next page  [ previous page"),
             Line::from("  t / s cycle team or state filters"),
             Line::from("  view next/prev/first/last/<key> jumps to an issue"),
             Line::from("Filters:"),

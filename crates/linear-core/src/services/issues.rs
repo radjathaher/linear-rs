@@ -113,6 +113,7 @@ pub struct IssueQueryOptions {
     pub state_id: Option<String>,
     pub label_ids: Vec<String>,
     pub title_contains: Option<String>,
+    pub after: Option<String>,
 }
 
 impl IssueQueryOptions {
@@ -152,7 +153,11 @@ impl IssueQueryOptions {
             Some(Value::Object(filter))
         };
 
-        IssueListParams { first, filter }
+        IssueListParams {
+            first,
+            filter,
+            after: self.after,
+        }
     }
 }
 
@@ -196,6 +201,8 @@ mod tests {
             state_id: Some("state-1".into()),
             label_ids: vec!["label-1".into(), "label-2".into()],
             title_contains: Some("bug".into()),
+            after: Some("cursor".into()),
+            ..Default::default()
         };
 
         let params = options.into_params();
@@ -205,5 +212,6 @@ mod tests {
         assert_eq!(filter["assignee"]["id"]["eq"], "user-1");
         assert_eq!(filter["labels"]["id"]["in"].as_array().unwrap().len(), 2);
         assert_eq!(filter["title"]["contains"], "bug");
+        assert_eq!(params.after.as_deref(), Some("cursor"));
     }
 }

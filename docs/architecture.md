@@ -53,10 +53,10 @@ linear-rs/
 - Command palette doubles as a command entry surface with history (↑/↓), supporting commands like `team <key>`, `state <name>`, `contains <text|clear>`, and `clear`; overlay echoes live input in the footer and shows recent history.
 - Slash (`/`) provides a shortcut into the palette pre-populated with `contains` to quickly refine the title filter.
 - `?` toggles an inline help overlay summarizing navigation and command shortcuts; `Esc` also closes it. The palette accepts `help` to open the same overlay from command mode.
-- `view <issue-key>` (and helpers `view next/prev/first/last`) jump focus to a loaded issue and fetch its detail pane without switching context; palette suggestions surface matching issue identifiers as you type.
+- `view <issue-key>` (and helpers `view next/prev/first/last`) jump focus to a loaded issue and fetch its detail pane without switching context; palette suggestions surface matching issue identifiers and numeric indices as you type.
 - Footer banner surfaces the active team/state/title filters so users always see which constraints drive the current issue list.
 - Issue selection persists across refreshes when the chosen issue still exists in the new result set, keeping the detail panel stable.
-- `c` clears all active filters instantly, while active `contains` filters highlight matching tokens inside the issue list for quick scanning.
+- `page next/prev/<number>` (also `[`, `]` shortcuts) paginate through results; `c` clears all active filters instantly, while active `contains` filters highlight matching tokens inside the issue list for quick scanning.
 - Async runtime (Tokio) plus `tokio::sync::mpsc` channel to integrate network calls without blocking the draw loop.
 - Shares state management primitives (e.g., `AppContext`) with CLI to ensure consistent caching and authorization behavior.
 - Initial scaffold fetches recent issues for the default profile using `IssueService`, renders them in a selectable list with keyboard navigation (`j/k`, arrows), shows team/state sidebars (`tab` to change focus, `t` cycle teams, `s` cycle states), supports a `:` command palette with history (↑/↓), refresh (`r`), and quit (`q`).
