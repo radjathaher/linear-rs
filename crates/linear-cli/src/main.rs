@@ -11,6 +11,7 @@ use linear_core::graphql::{
 };
 use linear_core::services::issues::{IssueQueryOptions, IssueService};
 use serde_json::json;
+use textwrap::wrap;
 use tokio::task;
 use url::Url;
 
@@ -602,11 +603,12 @@ fn render_issue_detail(issue: &IssueDetail) {
 
     if let Some(description) = &issue.description {
         if !description.trim().is_empty() {
-            println!(
-                "\n{}
-",
-                description.trim()
-            );
+            println!();
+            let width = 80;
+            for line in wrap(description.trim(), width) {
+                println!("{}", line);
+            }
+            println!();
         }
     }
 }
