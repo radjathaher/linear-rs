@@ -158,9 +158,11 @@ mod tests {
                 .map(|(_, v)| v.into_owned())
                 .expect("state present");
             tokio::spawn(async move {
-                let mut stream = TcpStream::connect((host, port)).await.unwrap();
+                let mut stream = TcpStream::connect((host.clone(), port)).await.unwrap();
                 let request = format!(
-                    "GET /callback?code=test-code&state={state} HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n"
+                    "GET /callback?code=test-code&state={state} HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n",
+                    host = host,
+                    port = port
                 );
                 stream.write_all(request.as_bytes()).await.unwrap();
                 let mut buf = [0u8; 512];
@@ -196,9 +198,11 @@ mod tests {
             let host = url.host_str().unwrap().to_owned();
             let port = url.port().unwrap();
             tokio::spawn(async move {
-                let mut stream = TcpStream::connect((host, port)).await.unwrap();
+                let mut stream = TcpStream::connect((host.clone(), port)).await.unwrap();
                 let request = format!(
-                    "GET /callback?code=test-code&state=wrong HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n"
+                    "GET /callback?code=test-code&state=wrong HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n",
+                    host = host,
+                    port = port
                 );
                 stream.write_all(request.as_bytes()).await.unwrap();
                 let mut buf = [0u8; 512];

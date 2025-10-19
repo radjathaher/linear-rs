@@ -114,15 +114,18 @@ mod tests {
     use crate::auth::{AuthSession, OAuthConfig, OAuthEndpoints};
     use chrono::{Duration, Utc};
     use httpmock::prelude::*;
+    use std::sync::{Arc as StdArc, Mutex as StdMutex};
 
     #[derive(Clone, Default)]
     struct MemoryStore {
-        inner: Arc<Mutex<Option<AuthSession>>>,
+        inner: StdArc<StdMutex<Option<AuthSession>>>,
     }
 
     impl MemoryStore {
         fn new() -> Self {
-            Self::default()
+            Self {
+                inner: StdArc::new(StdMutex::new(None)),
+            }
         }
     }
 
