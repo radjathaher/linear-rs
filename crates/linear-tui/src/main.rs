@@ -628,17 +628,33 @@ impl App {
             }
         } else if let Some(rest) = input.strip_prefix("view ") {
             let term = rest.trim();
+            let mut lines = Vec::new();
             if term.is_empty() {
-                vec![
-                    Line::from("view <issue-key>"),
-                    Line::from("view next"),
-                    Line::from("view prev"),
-                    Line::from("view first"),
-                    Line::from("view last"),
-                ]
+                for issue in self.issues.iter().take(5) {
+                    lines.push(Line::from(format!("view {}", issue.identifier)));
+                }
             } else {
-                vec![Line::from(format!("view {}", term))]
+                let needle = term.to_ascii_lowercase();
+                for issue in self
+                    .issues
+                    .iter()
+                    .filter(|issue| {
+                        issue.identifier.to_ascii_lowercase().starts_with(&needle)
+                            || issue.title.to_ascii_lowercase().contains(&needle)
+                    })
+                    .take(5)
+                {
+                    lines.push(Line::from(format!("view {}", issue.identifier)));
+                }
             }
+            if lines.is_empty() {
+                lines.push(Line::from("view <issue-key>"));
+            }
+            lines.push(Line::from("view next"));
+            lines.push(Line::from("view prev"));
+            lines.push(Line::from("view first"));
+            lines.push(Line::from("view last"));
+            lines
         } else {
             vec![
                 Line::from("team <key>"),
