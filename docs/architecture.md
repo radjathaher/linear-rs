@@ -54,7 +54,7 @@ linear-rs/
 - Slash (`/`) provides a shortcut into the palette pre-populated with `contains` to quickly refine the title filter.
 - `?` toggles an inline help overlay summarizing navigation and command shortcuts; `Esc` also closes it.
 - Footer banner surfaces the active team/state/title filters so users always see which constraints drive the current issue list.
-- Active `contains` filters highlight matching tokens inside the issue list for quick scanning.
+- `c` clears all active filters instantly, while active `contains` filters highlight matching tokens inside the issue list for quick scanning.
 - Async runtime (Tokio) plus `tokio::sync::mpsc` channel to integrate network calls without blocking the draw loop.
 - Shares state management primitives (e.g., `AppContext`) with CLI to ensure consistent caching and authorization behavior.
 - Initial scaffold fetches recent issues for the default profile using `IssueService`, renders them in a selectable list with keyboard navigation (`j/k`, arrows), shows team/state sidebars (`tab` to change focus, `t` cycle teams, `s` cycle states), supports a `:` command palette with history (↑/↓), refresh (`r`), and quit (`q`).

@@ -125,6 +125,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                     KeyCode::Char('t') => app.move_team_selection(1).await,
                     KeyCode::Char('s') => app.move_state_selection(1).await,
                     KeyCode::Char('/') => app.enter_contains_palette(),
+                    KeyCode::Char('c') => app.clear_all_filters().await,
                     KeyCode::Char('?') => app.toggle_help_overlay(),
                     KeyCode::Char(':') => app.enter_palette(),
                     _ => {}
@@ -324,6 +325,15 @@ impl App {
     async fn load_issues_with_contains(&mut self, contains: Option<String>) {
         self.title_contains = contains;
         self.load_issues_with_filters().await;
+    }
+    async fn clear_all_filters(&mut self) {
+        self.team_index = None;
+        self.state_index = None;
+        self.states_team_id = None;
+        self.states.clear();
+        self.title_contains = None;
+        self.set_status("Cleared filters", false);
+        self.load_issues().await;
     }
     async fn move_issue_selection(&mut self, delta: isize) {
         if self.issues.is_empty() {
@@ -639,13 +649,7 @@ impl App {
         match cmd {
             "" => self.set_status("Command mode exited", false),
             "clear" => {
-                self.team_index = None;
-                self.state_index = None;
-                self.states_team_id = None;
-                self.states.clear();
-                self.title_contains = None;
-                self.set_status("Cleared filters", false);
-                self.load_issues().await;
+                self.clear_all_filters().await;
             }
             "reload" => {
                 self.teams.clear();
@@ -830,7 +834,7 @@ fn render_app(frame: &mut Frame, app: &App) {
         .split(right_chunks[4]);
 
     let help = Paragraph::new(
-        "Commands: r=refresh  tab=focus  j/k=move  t=team  s=state  /=contains  clear/reload  :team/:state/:contains  q=quit",
+        "Commands: r=refresh  c=clear filters  tab=focus  j/k=move  t=team  s=state  /=contains  reload  :team/:state/:contains  q=quit",
     )
     .style(Style::default());
     frame.render_widget(help, help_chunks[0]);
@@ -890,7 +894,7 @@ fn render_app(frame: &mut Frame, app: &App) {
             Line::from("  j/k or arrow keys  move selection"),
             Line::from("  tab cycles focus between issues/teams/states"),
             Line::from("Actions:"),
-            Line::from("  r refreshes issues   q exits"),
+            Line::from("  r refreshes issues   c clears filters   q exits"),
             Line::from("  t / s cycle team or state filters"),
             Line::from("Filters:"),
             Line::from("  / opens contains filter  :team/:state/:contains"),
