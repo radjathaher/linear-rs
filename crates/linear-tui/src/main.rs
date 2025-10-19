@@ -285,6 +285,10 @@ impl App {
     async fn load_issues_with_filters(&mut self) {
         self.abort_pending();
         let contains = self.current_contains();
+        let previous_key = self
+            .issues
+            .get(self.selected)
+            .map(|issue| issue.identifier.clone());
         match fetch_issue_summaries(
             &self.service,
             self.current_team_id(),
@@ -294,27 +298,61 @@ impl App {
         .await
         {
             Ok((issues, detail)) => {
-                self.issues = issues;
-                self.detail = detail;
-                self.selected = 0;
-                if self.detail.is_none() && !self.issues.is_empty() {
-                    let first_key = self.issues[0].identifier.clone();
-                    self.queue_detail_fetch(first_key);
-                    self.set_spinner_status(format!(
-                        "Loading first issue... (team: {}, state: {})",
-                        self.current_team_label(),
-                        self.current_state_label()
-                    ));
-                } else {
+                if issues.is_empty() {
+                    self.issues = issues;
+                    self.detail = None;
+                    self.selected = 0;
                     self.set_status(
                         format!(
-                            "Loaded {} issues (team: {}, state: {})",
-                            self.issues.len(),
+                            "No issues match filters (team: {}, state: {})",
                             self.current_team_label(),
                             self.current_state_label()
                         ),
                         false,
                     );
+                    return;
+                }
+
+                let mut selected_index = 0;
+                if let Some(prev_key) = previous_key.as_ref() {
+                    if let Some(idx) = issues
+                        .iter()
+                        .position(|issue| issue.identifier.eq_ignore_ascii_case(prev_key))
+                    {
+                        selected_index = idx;
+                    }
+                }
+
+                self.issues = issues;
+                self.selected = selected_index;
+                let selected_key = self.issues[self.selected].identifier.clone();
+
+                let detail_matches = detail
+                    .as_ref()
+                    .map(|d| d.identifier.eq_ignore_ascii_case(&selected_key))
+                    .unwrap_or(false);
+
+                if detail_matches {
+                    self.detail = detail;
+                    self.set_status(
+                        format!(
+                            "Loaded {} issues (team: {}, state: {}, selected: {})",
+                            self.issues.len(),
+                            self.current_team_label(),
+                            self.current_state_label(),
+                            selected_key
+                        ),
+                        false,
+                    );
+                } else {
+                    self.detail = None;
+                    self.queue_detail_fetch(selected_key.clone());
+                    self.set_spinner_status(format!(
+                        "Loading {}... (team: {}, state: {})",
+                        selected_key,
+                        self.current_team_label(),
+                        self.current_state_label()
+                    ));
                 }
             }
             Err(err) => {
