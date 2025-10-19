@@ -847,7 +847,10 @@ impl App {
             if term.is_empty() {
                 lines.push(Line::from("page next"));
                 lines.push(Line::from("page prev"));
+                lines.push(Line::from("page refresh"));
                 lines.push(Line::from(format!("page {}", self.page + 1)));
+            } else if term.eq_ignore_ascii_case("refresh") {
+                lines.push(Line::from("page refresh"));
             } else if term.chars().all(|c| c.is_ascii_digit()) {
                 lines.push(Line::from(format!("page {}", term)));
             } else {
@@ -867,6 +870,7 @@ impl App {
                 Line::from("view last"),
                 Line::from("page next"),
                 Line::from("page prev"),
+                Line::from("page refresh"),
                 Line::from("page <number>"),
                 Line::from("clear"),
                 Line::from("reload"),
@@ -1062,6 +1066,18 @@ impl App {
                 return;
             } else if arg.eq_ignore_ascii_case("prev") || arg.eq_ignore_ascii_case("previous") {
                 self.previous_page().await;
+                return;
+            } else if arg.eq_ignore_ascii_case("refresh") {
+                self.page_cache.remove(&self.page);
+                if self.page > 0 && self.page_cursors.len() >= self.page {
+                    // keep cursor history so forward navigation still works
+                    self.page_cursors.resize(self.page, None);
+                }
+                self.selected = 0;
+                self.issues.clear();
+                self.detail = None;
+                self.set_status(format!("Refreshing page {}…", self.page + 1), true);
+                self.load_issues_with_filters().await;
                 return;
             } else if let Ok(num) = arg.parse::<usize>() {
                 if num == 0 {
