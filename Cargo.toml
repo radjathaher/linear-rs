@@ -3,8 +3,6 @@ members = [
     "crates/linear-core",
     "crates/linear-cli",
     "crates/linear-tui",
-    "crates/linear-codegen",
-    "xtask",
 ]
 resolver = "2"
 

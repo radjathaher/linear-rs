@@ -14,9 +14,7 @@ linear-rs/
 ├── crates/
 │   ├── linear-core/     # shared library crate (auth, GraphQL, domain)
 │   ├── linear-cli/      # CLI binary crate (clap-based)
-│   ├── linear-tui/      # Ratatui application
-│   └── linear-codegen/  # build-time GraphQL schema + operation generators
-└── xtask/               # optional helper binary for codegen/dev ergonomics
+│   └── linear-tui/      # Ratatui application
 ```
 
 ### `linear-core`
@@ -28,11 +26,6 @@ linear-rs/
 - **Domain layer** – Strongly-typed service objects (e.g., `IssuesService`, `ProjectsService`) that expose ergonomic operations and hide pagination/connection details. Supports actor-scoped mutations via `actor=user/app` flags.citeturn1search6 `IssuesService` now wraps GraphQL issue queries with filter helpers so front-ends can request lists by team, state, assignee, labels, or title substring matches without crafting raw filters.
 - **Configuration** – Loads workspace defaults (team filters, default view presets, UI preferences) and user profiles to enable multi-workspace switching.
 - **Event pipeline** – Optional module for webhook ingestion or polling diffs to keep local caches in sync.
-
-### `linear-codegen`
-- Build script downloads the latest GraphQL schema via introspection and materializes strongly-typed query/mutation structs.
-- Houses reusable fragments (issue summary, project detail, workflow states) employed across CLI/TUI commands.
-- Exposes a cargo alias (`cargo xtask codegen`) to refresh schema when Linear updates fields.
 
 ### `linear-cli`
 - Depends on `clap` derive for command tree (`linear auth login`, `linear auth logout`, `linear issue list`, `linear issue view <issue-key>`, `linear issue create`, `linear project list`, `linear cycle list`, `linear sync`).
@@ -100,7 +93,7 @@ linear-rs/
 - Provide example configuration file under `examples/linear.toml`.
 
 ## Next Steps
-1. Scaffold workspace: create `Cargo.toml` workspace, stub crates, and wire `cargo xtask codegen`.
+1. Scaffold workspace: create `Cargo.toml` workspace and stub crates. ~~Wire `cargo xtask codegen`.~~ Removed October 19, 2025 as codegen crate/xtask runner no longer needed.
 2. Implement shared auth module in `linear-core`:
    - Browser PKCE flow with loopback server.
    - Manual/no-browser fallback (print URL, paste code).
