@@ -81,9 +81,9 @@ async fn run_app<B: ratatui::backend::Backend>(
                         KeyCode::Up => {
                             app.recall_palette_history(-1);
                         }
-                    KeyCode::Down => {
-                        app.recall_palette_history(1);
-                    }
+                        KeyCode::Down => {
+                            app.recall_palette_history(1);
+                        }
                         KeyCode::Char(c) => {
                             app.palette_input.push(c);
                         }
@@ -377,7 +377,7 @@ impl App {
             .palette_history_index
             .map(|idx| idx as isize)
             .unwrap_or(len);
-        let mut next = (current + delta).clamp(0, len);
+        let next = (current + delta).clamp(0, len);
         if next == len {
             self.palette_history_index = None;
             self.palette_input.clear();
@@ -631,10 +631,7 @@ Updated: {}",
             let history_height = history_lines.len() as u16;
             let history_area = ratatui::layout::Rect {
                 x: help_chunks[1].x,
-                y: help_chunks[1]
-                    .y
-                    .saturating_sub(history_height)
-                    .max(0),
+                y: help_chunks[1].y.saturating_sub(history_height).max(0),
                 width: help_chunks[1].width,
                 height: history_height,
             };
