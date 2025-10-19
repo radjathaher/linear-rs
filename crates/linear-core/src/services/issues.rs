@@ -10,6 +10,7 @@ use crate::graphql::{
 };
 
 /// Provides higher-level helpers around Linear issues.
+#[derive(Clone)]
 pub struct IssueService {
     client: LinearGraphqlClient,
     cache: Cache,

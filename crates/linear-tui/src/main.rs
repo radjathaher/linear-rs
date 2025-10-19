@@ -5,7 +5,7 @@ use anyhow::{anyhow, Context, Result};
 use crossterm::event::{self, Event, KeyCode};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use linear_core::auth::{AuthManager, FileCredentialStore, OAuthClient, OAuthConfig};
-use linear_core::graphql::LinearGraphqlClient;
+use linear_core::graphql::{LinearGraphqlClient, TeamSummary};
 use linear_core::services::issues::{IssueQueryOptions, IssueService};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
@@ -24,6 +24,11 @@ fn main() -> Result<()> {
 }
 
 async fn async_main() -> Result<()> {
+    let session = load_session(DEFAULT_PROFILE).await?;
+    let service = IssueService::new(
+        LinearGraphqlClient::from_session(&session).context("failed to build GraphQL client")?,
+    );
+
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     crossterm::execute!(&mut stdout, crossterm::terminal::EnterAlternateScreen)?;
@@ -31,12 +36,7 @@ async fn async_main() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let session = load_session(DEFAULT_PROFILE).await?;
-    let client = LinearGraphqlClient::from_session(&session)
-        .context("failed to build GraphQL client")?;
-    let service = IssueService::new(client);
-
-    let mut app = App::new(service.clone());
+    let mut app = App::new(service);
     app.load_issues().await;
 
     let result = run_app(&mut terminal, &mut app).await;
@@ -66,6 +66,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                     KeyCode::Char('r') => app.load_issues().await,
                     KeyCode::Down | KeyCode::Char('j') => app.move_selection(1).await,
                     KeyCode::Up | KeyCode::Char('k') => app.move_selection(-1).await,
+                    KeyCode::Char('t') => app.next_team().await,
                     _ => {}
                 },
                 _ => {}
@@ -106,6 +107,8 @@ struct App {
     status: String,
     selected: usize,
     pending_detail: Option<JoinHandle<Result<Option<linear_core::graphql::IssueDetail>>>>,
+    teams: Vec<TeamSummary>,
+    team_index: Option<usize>,
 }
 
 impl App {
@@ -117,12 +120,14 @@ impl App {
             status: "Press 'r' to refresh, arrows to navigate, 'q' to quit".into(),
             selected: 0,
             pending_detail: None,
+            teams: Vec::new(),
+            team_index: None,
         }
     }
 
     async fn load_issues(&mut self) {
         self.abort_pending();
-        match fetch_issue_summaries(&self.service).await {
+        match fetch_issue_summaries(&self.service, self.current_team_id()).await {
             Ok((issues, detail)) => {
                 self.issues = issues;
                 self.detail = detail;
@@ -130,9 +135,16 @@ impl App {
                 if self.detail.is_none() && !self.issues.is_empty() {
                     let first_key = self.issues[0].identifier.clone();
                     self.queue_detail_fetch(first_key);
-                    self.status = "Loading first issue...".into();
+                    self.status = format!(
+                        "Loading first issue... (team: {})",
+                        self.current_team_label()
+                    );
                 } else {
-                    self.status = "Loaded issues".into();
+                    self.status = format!(
+                        "Loaded {} issues for {}",
+                        self.issues.len(),
+                        self.current_team_label()
+                    );
                 }
             }
             Err(err) => {
@@ -172,15 +184,63 @@ impl App {
             handle.abort();
         }
     }
+
+    async fn ensure_teams(&mut self) {
+        if self.teams.is_empty() {
+            match self.service.teams().await {
+                Ok(teams) => self.teams = teams,
+                Err(err) => {
+                    self.status = format!("Failed to load teams: {err}");
+                }
+            }
+        }
+    }
+
+    async fn next_team(&mut self) {
+        self.ensure_teams().await;
+        if self.teams.is_empty() {
+            return;
+        }
+        let next_index = match self.team_index {
+            None => Some(0),
+            Some(idx) if idx + 1 < self.teams.len() => Some(idx + 1),
+            _ => None,
+        };
+        self.team_index = next_index;
+        let team_label = self
+            .team_index
+            .and_then(|idx| self.teams.get(idx))
+            .map(|team| team.key.clone())
+            .unwrap_or_else(|| "All".into());
+        self.status = format!("Switched to team: {}", team_label);
+        self.load_issues().await;
+    }
+
+    fn current_team_id(&self) -> Option<String> {
+        self.team_index
+            .and_then(|idx| self.teams.get(idx))
+            .map(|team| team.id.clone())
+    }
+
+    fn current_team_label(&self) -> String {
+        self.team_index
+            .and_then(|idx| self.teams.get(idx))
+            .map(|team| team.key.clone())
+            .unwrap_or_else(|| "All".into())
+    }
 }
 
-async fn fetch_issue_summaries(service: &IssueService) -> Result<(
+async fn fetch_issue_summaries(
+    service: &IssueService,
+    team_id: Option<String>,
+) -> Result<(
     Vec<linear_core::graphql::IssueSummary>,
     Option<linear_core::graphql::IssueDetail>,
 )> {
     let issues = service
         .list(IssueQueryOptions {
             limit: 20,
+            team_id,
             ..Default::default()
         })
         .await
@@ -292,6 +352,7 @@ Updated: {}",
     let status = Paragraph::new(app.status.clone()).style(Style::default().fg(Color::Cyan));
     frame.render_widget(status, chunks[2]);
 
-    let help = Paragraph::new("Commands: r=refresh  j/k=move  q=quit").style(Style::default());
+    let help = Paragraph::new("Commands: r=refresh  j/k=move  t=next-team  q=quit")
+        .style(Style::default());
     frame.render_widget(help, chunks[3]);
 }
