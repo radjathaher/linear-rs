@@ -5,7 +5,7 @@ use anyhow::{anyhow, Context, Result};
 use crossterm::event::{self, Event, KeyCode};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use linear_core::auth::{AuthManager, FileCredentialStore, OAuthClient, OAuthConfig};
-use linear_core::graphql::{LinearGraphqlClient, TeamSummary};
+use linear_core::graphql::{LinearGraphqlClient, TeamSummary, WorkflowStateSummary};
 use linear_core::services::issues::{IssueQueryOptions, IssueService};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
@@ -67,13 +67,16 @@ async fn run_app<B: ratatui::backend::Backend>(
                     KeyCode::Down | KeyCode::Char('j') => match app.focus {
                         Focus::Issues => app.move_issue_selection(1).await,
                         Focus::Teams => app.move_team_selection(1).await,
+                        Focus::States => app.move_state_selection(1).await,
                     },
                     KeyCode::Up | KeyCode::Char('k') => match app.focus {
                         Focus::Issues => app.move_issue_selection(-1).await,
                         Focus::Teams => app.move_team_selection(-1).await,
+                        Focus::States => app.move_state_selection(-1).await,
                     },
                     KeyCode::Tab => app.toggle_focus(),
                     KeyCode::Char('t') => app.move_team_selection(1).await,
+                    KeyCode::Char('s') => app.move_state_selection(1).await,
                     _ => {}
                 },
                 _ => {}
@@ -117,11 +120,15 @@ struct App {
     pending_detail: Option<JoinHandle<Result<Option<linear_core::graphql::IssueDetail>>>>,
     teams: Vec<TeamSummary>,
     team_index: Option<usize>,
+    states: Vec<WorkflowStateSummary>,
+    state_index: Option<usize>,
+    states_team_id: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Focus {
     Teams,
+    States,
     Issues,
 }
 
@@ -137,13 +144,23 @@ impl App {
             pending_detail: None,
             teams: Vec::new(),
             team_index: None,
+            states: Vec::new(),
+            state_index: None,
+            states_team_id: None,
         }
     }
 
     async fn load_issues(&mut self) {
         self.abort_pending();
         self.ensure_teams().await;
-        match fetch_issue_summaries(&self.service, self.current_team_id()).await {
+        self.ensure_states().await;
+        match fetch_issue_summaries(
+            &self.service,
+            self.current_team_id(),
+            self.current_state_id(),
+        )
+        .await
+        {
             Ok((issues, detail)) => {
                 self.issues = issues;
                 self.detail = detail;
@@ -152,14 +169,16 @@ impl App {
                     let first_key = self.issues[0].identifier.clone();
                     self.queue_detail_fetch(first_key);
                     self.status = format!(
-                        "Loading first issue... (team: {})",
-                        self.current_team_label()
+                        "Loading first issue... (team: {}, state: {})",
+                        self.current_team_label(),
+                        self.current_state_label()
                     );
                 } else {
                     self.status = format!(
-                        "Loaded {} issues for {}",
+                        "Loaded {} issues (team: {}, state: {})",
                         self.issues.len(),
-                        self.current_team_label()
+                        self.current_team_label(),
+                        self.current_state_label()
                     );
                 }
             }
@@ -218,21 +237,17 @@ impl App {
             return;
         }
         let total = self.teams.len() as isize + 1; // include "All"
-        let current = self
-            .team_index
-            .map(|idx| idx as isize + 1)
-            .unwrap_or(0);
+        let current = self.team_index.map(|idx| idx as isize + 1).unwrap_or(0);
         let next = (current + delta).clamp(0, total - 1);
         self.team_index = if next == 0 {
             None
         } else {
             Some((next - 1) as usize)
         };
-        let team_label = self
-            .team_index
-            .and_then(|idx| self.teams.get(idx))
-            .map(|team| team.key.clone())
-            .unwrap_or_else(|| "All".into());
+        self.states.clear();
+        self.state_index = None;
+        self.states_team_id = None;
+        let team_label = self.current_team_label();
         self.status = format!("Switched to team: {}", team_label);
         self.load_issues().await;
     }
@@ -250,14 +265,77 @@ impl App {
             .unwrap_or_else(|| "All".into())
     }
 
+    fn current_state_label(&self) -> String {
+        self.state_index
+            .and_then(|idx| self.states.get(idx))
+            .map(|state| state.name.clone())
+            .unwrap_or_else(|| "All".into())
+    }
+
+    async fn ensure_states(&mut self) {
+        if let Some(team_id) = self.current_team_id() {
+            if self.states_team_id.as_deref() != Some(&team_id) {
+                match self.service.workflow_states(&team_id).await {
+                    Ok(states) => {
+                        self.states = states;
+                        self.states_team_id = Some(team_id);
+                        self.state_index = None;
+                    }
+                    Err(err) => {
+                        self.status = format!("Failed to load states: {err}");
+                    }
+                }
+            }
+        } else {
+            self.states.clear();
+            self.states_team_id = None;
+            self.state_index = None;
+        }
+        if let Some(idx) = self.state_index {
+            if idx >= self.states.len() {
+                self.state_index = None;
+            }
+        }
+    }
+
+    async fn move_state_selection(&mut self, delta: isize) {
+        self.ensure_states().await;
+        if self.states.is_empty() {
+            return;
+        }
+        let total = self.states.len() as isize + 1; // include "All"
+        let current = self.state_index.map(|idx| idx as isize + 1).unwrap_or(0);
+        let next = (current + delta).clamp(0, total - 1);
+        self.state_index = if next == 0 {
+            None
+        } else {
+            Some((next - 1) as usize)
+        };
+        let state_label = self
+            .state_index
+            .and_then(|idx| self.states.get(idx))
+            .map(|state| state.name.clone())
+            .unwrap_or_else(|| "All".into());
+        self.status = format!("State filter: {}", state_label);
+        self.load_issues().await;
+    }
+
+    fn current_state_id(&self) -> Option<String> {
+        self.state_index
+            .and_then(|idx| self.states.get(idx))
+            .map(|state| state.id.clone())
+    }
+
     fn toggle_focus(&mut self) {
         self.focus = match self.focus {
             Focus::Issues => Focus::Teams,
-            Focus::Teams => Focus::Issues,
+            Focus::Teams => Focus::States,
+            Focus::States => Focus::Issues,
         };
         self.status = match self.focus {
             Focus::Issues => "Focus: issues".into(),
             Focus::Teams => "Focus: teams".into(),
+            Focus::States => "Focus: states".into(),
         };
     }
 }
@@ -265,6 +343,7 @@ impl App {
 async fn fetch_issue_summaries(
     service: &IssueService,
     team_id: Option<String>,
+    state_id: Option<String>,
 ) -> Result<(
     Vec<linear_core::graphql::IssueSummary>,
     Option<linear_core::graphql::IssueDetail>,
@@ -273,6 +352,7 @@ async fn fetch_issue_summaries(
         .list(IssueQueryOptions {
             limit: 20,
             team_id,
+            state_id,
             ..Default::default()
         })
         .await
@@ -361,9 +441,15 @@ fn render_app(frame: &mut Frame, app: &App) {
         list_state.select(Some(app.selected));
     }
 
+    let issue_highlight = if matches!(app.focus, Focus::Issues) {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+
     let list = List::new(items)
         .block(Block::default().title("Issues").borders(Borders::ALL))
-        .highlight_style(Style::default().fg(Color::Yellow));
+        .highlight_style(issue_highlight);
     frame.render_stateful_widget(list, right_chunks[0], &mut list_state);
 
     let detail_block = Block::default().title("Details").borders(Borders::ALL);
@@ -391,33 +477,53 @@ Updated: {}",
     let status = Paragraph::new(app.status.clone()).style(Style::default().fg(Color::Cyan));
     frame.render_widget(status, right_chunks[2]);
 
-    let help = Paragraph::new("Commands: r=refresh  tab=switch focus  j/k=move  t=next-team  q=quit")
-        .style(Style::default());
+    let help =
+        Paragraph::new("Commands: r=refresh  tab=switch focus  j/k=move  t=next-team  q=quit")
+            .style(Style::default());
     frame.render_widget(help, right_chunks[3]);
 }
 
 fn render_team_panel(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) {
-    let mut items = Vec::new();
-    items.push(ListItem::new("All teams"));
+    let panels = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+        .split(area);
+
+    // Teams panel
+    let mut team_items = Vec::new();
+    team_items.push(ListItem::new("All teams"));
     for team in &app.teams {
-        items.push(ListItem::new(format!("{}  {}", team.key, team.name)));
+        team_items.push(ListItem::new(format!("{}  {}", team.key, team.name)));
     }
-
-    let mut state = ratatui::widgets::ListState::default();
-    let selected = app
-        .team_index
-        .map(|idx| idx + 1)
-        .unwrap_or(0);
-    state.select(Some(selected));
-
-    let highlight = if matches!(app.focus, Focus::Teams) {
+    let mut team_state = ratatui::widgets::ListState::default();
+    let selected_team = app.team_index.map(|idx| idx + 1).unwrap_or(0);
+    team_state.select(Some(selected_team));
+    let team_highlight = if matches!(app.focus, Focus::Teams) {
         Style::default().fg(Color::Yellow)
     } else {
         Style::default().fg(Color::DarkGray)
     };
-
-    let list = List::new(items)
+    let team_list = List::new(team_items)
         .block(Block::default().title("Teams").borders(Borders::ALL))
-        .highlight_style(highlight);
-    frame.render_stateful_widget(list, area, &mut state);
+        .highlight_style(team_highlight);
+    frame.render_stateful_widget(team_list, panels[0], &mut team_state);
+
+    // States panel
+    let mut state_items = Vec::new();
+    state_items.push(ListItem::new("All states"));
+    for workflow in &app.states {
+        state_items.push(ListItem::new(format!("{}", workflow.name)));
+    }
+    let mut state_state = ratatui::widgets::ListState::default();
+    let selected_state = app.state_index.map(|idx| idx + 1).unwrap_or(0);
+    state_state.select(Some(selected_state));
+    let state_highlight = if matches!(app.focus, Focus::States) {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+    let state_list = List::new(state_items)
+        .block(Block::default().title("States").borders(Borders::ALL))
+        .highlight_style(state_highlight);
+    frame.render_stateful_widget(state_list, panels[1], &mut state_state);
 }
