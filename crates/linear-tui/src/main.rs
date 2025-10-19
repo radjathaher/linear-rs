@@ -255,10 +255,14 @@ impl App {
             .filter(|s| !s.is_empty())
             .map(|s| format!("'{}'", s))
             .unwrap_or_else(|| "-".into());
-        format!(
-            "Filters: team={}  state={}  title~{}",
-            team, state, contains
-        )
+        let mut parts = Vec::new();
+        parts.push(format!("team={}", team));
+        parts.push(format!("state={}", state));
+        parts.push(format!("title~{}", contains));
+        if let Some(issue) = self.issues.get(self.selected) {
+            parts.push(format!("selected={}", issue.identifier));
+        }
+        format!("Filters: {}", parts.join("  "))
     }
 
     fn status_tick(&mut self) {
