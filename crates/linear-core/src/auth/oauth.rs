@@ -199,6 +199,35 @@ impl OAuthClient {
         Ok(token_result)
     }
 
+    /// Request client credentials (machine-to-machine) tokens.
+    pub async fn client_credentials(
+        &self,
+        scopes: &[String],
+    ) -> Result<TokenExchangeResult, AuthError> {
+        let mut form = vec![
+            ("grant_type".to_string(), "client_credentials".to_string()),
+            ("client_id".to_string(), self.config.client_id.clone()),
+        ];
+
+        if let Some(secret) = &self.config.client_secret {
+            form.push(("client_secret".to_string(), secret.clone()));
+        }
+
+        if !scopes.is_empty() {
+            form.push(("scope".to_string(), scopes.join(" ")));
+        }
+
+        let response = self
+            .http
+            .post(self.endpoints.token_url.clone())
+            .form(&form)
+            .timeout(StdDuration::from_secs(30))
+            .send()
+            .await?;
+
+        self.handle_token_response(response).await
+    }
+
     async fn handle_token_response(
         &self,
         response: reqwest::Response,
@@ -384,6 +413,43 @@ mod tests {
                 }
                 other => panic!("unexpected error: {other:?}"),
             }
+        });
+    }
+
+    #[test]
+    fn client_credentials_success() {
+        let rt = runtime();
+        rt.block_on(async {
+            let server = MockServer::start();
+            let mock = server.mock(|when, then| {
+                when.method(POST)
+                    .path("/oauth/token")
+                    .body_contains("grant_type=client_credentials");
+                then.status(200).json_body_obj(&serde_json::json!({
+                    "access_token": "machine-token",
+                    "token_type": "bearer",
+                    "expires_in": 3600,
+                    "scope": "read write"
+                }));
+            });
+
+            let config = OAuthConfig::new(
+                "client-id",
+                Url::parse("http://localhost/callback").unwrap(),
+            )
+            .with_secret("client-secret");
+            let endpoints = OAuthEndpoints {
+                authorization_url: Url::parse("http://localhost/authorize").unwrap(),
+                token_url: Url::parse(&format!("{}{}", server.base_url(), "/oauth/token")).unwrap(),
+            };
+            let client = OAuthClient::with_endpoints(config, endpoints).unwrap();
+            let result = client
+                .client_credentials(&["read".into(), "write".into()])
+                .await
+                .unwrap();
+            mock.assert();
+            assert_eq!(result.session.access_token, "machine-token");
+            assert_eq!(result.session.scope, vec!["read", "write"]);
         });
     }
 }

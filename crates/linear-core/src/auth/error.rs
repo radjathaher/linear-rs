@@ -36,4 +36,6 @@ pub enum AuthError {
     BrowserLaunch(String),
     #[error("invalid authorization response: {0}")]
     InvalidAuthorizationResponse(String),
+    #[error("unsupported auth flow: {0}")]
+    UnsupportedFlow(&'static str),
 }

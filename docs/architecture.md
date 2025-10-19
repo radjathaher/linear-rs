@@ -21,6 +21,7 @@ linear-rs/
 
 ### `linear-core`
 - **Auth module** – Implements OAuth 2.0 Authorization Code flow with PKCE, including local loopback server capture and copy-paste fallback paths; manages refresh token rotation (enabled by default for apps created after 2025-10-01), and exposes personal API key and client-credential login helpers.citeturn1search0
+- `AuthManager` orchestrates flow selection, credential persistence, and refresh handling so front-ends only invoke high-level helpers (`authenticate_browser`, `authenticate_manual`, `authenticate_api_key`, `authenticate_client_credentials`).
 - **Token store** – Persists encrypted credentials in `$XDG_CONFIG_HOME/linear-rs/credentials.json` (or platform-specific directories). Prefer `keyring` for secure storage when available; fall back to filesystem with `chmod 600`.
 - **GraphQL client** – Async wrapper around `reqwest` + `graphql_client` (or `cynic`) with request middleware for headers, retries, rate limiting, and structured error handling per GraphQL spec.citeturn2search0
 - **Domain layer** – Strongly-typed service objects (e.g., `IssuesService`, `ProjectsService`) that expose ergonomic operations and hide pagination/connection details. Supports actor-scoped mutations via `actor=user/app` flags.citeturn1search6
