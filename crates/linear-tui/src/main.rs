@@ -386,17 +386,35 @@ impl App {
         }
     }
 
-    fn jump_to_issue(&mut self, key: &str) -> bool {
+    fn jump_to_issue(&mut self, key_or_index: &str) -> bool {
         if self.issues.is_empty() {
             return false;
         }
+        if let Ok(parsed) = key_or_index.parse::<usize>() {
+            if parsed == 0 {
+                return false;
+            }
+            let idx = parsed.saturating_sub(1);
+            if idx < self.issues.len() {
+                if idx == self.selected {
+                    self.set_status(format!("Already focused on #{}", parsed), false);
+                } else {
+                    self.select_issue(idx);
+                }
+                return true;
+            }
+        }
+
         if let Some(idx) = self
             .issues
             .iter()
-            .position(|issue| issue.identifier.eq_ignore_ascii_case(key))
+            .position(|issue| issue.identifier.eq_ignore_ascii_case(key_or_index))
         {
             if idx == self.selected {
-                self.set_status(format!("Already focused on {}", key.to_uppercase()), false);
+                self.set_status(
+                    format!("Already focused on {}", key_or_index.to_uppercase()),
+                    false,
+                );
             } else {
                 self.select_issue(idx);
             }
@@ -630,21 +648,24 @@ impl App {
             let term = rest.trim();
             let mut lines = Vec::new();
             if term.is_empty() {
-                for issue in self.issues.iter().take(5) {
+                for (idx, issue) in self.issues.iter().enumerate().take(5) {
                     lines.push(Line::from(format!("view {}", issue.identifier)));
+                    lines.push(Line::from(format!("view {}", idx + 1)));
                 }
             } else {
                 let needle = term.to_ascii_lowercase();
-                for issue in self
+                for (idx, issue) in self
                     .issues
                     .iter()
-                    .filter(|issue| {
+                    .enumerate()
+                    .filter(|(_, issue)| {
                         issue.identifier.to_ascii_lowercase().starts_with(&needle)
                             || issue.title.to_ascii_lowercase().contains(&needle)
                     })
                     .take(5)
                 {
                     lines.push(Line::from(format!("view {}", issue.identifier)));
+                    lines.push(Line::from(format!("view {}", idx + 1)));
                 }
             }
             if lines.is_empty() {
@@ -832,7 +853,14 @@ impl App {
             if key.is_empty() {
                 self.set_status("Usage: view <issue-key>", false);
             } else if self.jump_to_issue(key) {
-                self.set_status(format!("Jumped to {}", key.to_uppercase()), false);
+                if let Some(current) = self.issues.get(self.selected) {
+                    self.set_status(
+                        format!("Jumped to {}", current.identifier.to_uppercase()),
+                        false,
+                    );
+                } else {
+                    self.set_status("Jumped", false);
+                }
             } else {
                 self.set_status(format!("Issue '{}' not in the current list", key), false);
             }
