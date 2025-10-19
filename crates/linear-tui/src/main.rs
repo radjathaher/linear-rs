@@ -8,10 +8,10 @@ use linear_core::auth::{AuthManager, FileCredentialStore, OAuthClient, OAuthConf
 use linear_core::graphql::{LinearGraphqlClient, TeamSummary, WorkflowStateSummary};
 use linear_core::services::issues::{IssueQueryOptions, IssueService};
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::text::Line;
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
 use ratatui::{Frame, Terminal};
 use textwrap::wrap;
 use tokio::runtime::Runtime;
@@ -63,6 +63,18 @@ async fn run_app<B: ratatui::backend::Backend>(
 
         if event::poll(Duration::from_millis(200))? {
             let evt = event::read()?;
+            if app.show_help_overlay {
+                if let Event::Key(key) = evt {
+                    match key.code {
+                        KeyCode::Char('?') | KeyCode::Esc => {
+                            app.toggle_help_overlay();
+                        }
+                        _ => {}
+                    }
+                }
+                continue;
+            }
+
             if app.palette_active {
                 if let Event::Key(key) = evt {
                     match key.code {
@@ -113,6 +125,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                     KeyCode::Char('t') => app.move_team_selection(1).await,
                     KeyCode::Char('s') => app.move_state_selection(1).await,
                     KeyCode::Char('/') => app.enter_contains_palette(),
+                    KeyCode::Char('?') => app.toggle_help_overlay(),
                     KeyCode::Char(':') => app.enter_palette(),
                     _ => {}
                 },
@@ -175,6 +188,7 @@ struct App {
     palette_history: Vec<String>,
     palette_history_index: Option<usize>,
     title_contains: Option<String>,
+    show_help_overlay: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -206,6 +220,7 @@ impl App {
             palette_history: Vec::new(),
             palette_history_index: None,
             title_contains: None,
+            show_help_overlay: false,
         }
     }
 
@@ -538,6 +553,7 @@ impl App {
 
     fn enter_palette(&mut self) {
         self.palette_active = true;
+        self.show_help_overlay = false;
         self.palette_input.clear();
         self.palette_history_index = None;
         self.set_status("Command mode (: to exit, ↑/↓ history)", false);
@@ -545,6 +561,7 @@ impl App {
 
     fn enter_contains_palette(&mut self) {
         self.palette_active = true;
+        self.show_help_overlay = false;
         self.palette_history_index = None;
         self.palette_input = match self.current_contains() {
             Some(term) => format!("contains {}", term),
@@ -641,6 +658,16 @@ impl App {
             }
             "contains" => self.set_status("Usage: contains <term>", false),
             _ => self.set_status(format!("Unknown command: {}", cmd), false),
+        }
+    }
+
+    fn toggle_help_overlay(&mut self) {
+        self.show_help_overlay = !self.show_help_overlay;
+        if self.show_help_overlay {
+            self.palette_active = false;
+            self.set_status("Help open (? or Esc to close)", false);
+        } else {
+            self.set_status("Help closed", false);
         }
     }
 }
@@ -853,6 +880,29 @@ fn render_app(frame: &mut Frame, app: &App) {
             frame.render_widget(suggestions_widget, suggestions_area);
         }
     }
+
+    if app.show_help_overlay {
+        let overlay_width = layout[1].width.min(80).max(40);
+        let overlay_height = layout[1].height.min(12).max(7);
+        let overlay_area = centered_rect(overlay_width, overlay_height, layout[1]);
+        let help_lines = vec![
+            Line::from("Navigation:"),
+            Line::from("  j/k or arrow keys  move selection"),
+            Line::from("  tab cycles focus between issues/teams/states"),
+            Line::from("Actions:"),
+            Line::from("  r refreshes issues   q exits"),
+            Line::from("  t / s cycle team or state filters"),
+            Line::from("Filters:"),
+            Line::from("  / opens contains filter  :team/:state/:contains"),
+            Line::from("  clear resets filters  contains clear drops title filter"),
+            Line::from("Close help with ? or Esc"),
+        ];
+        let help_overlay = Paragraph::new(help_lines)
+            .block(Block::default().title("Help").borders(Borders::ALL))
+            .style(Style::default().fg(Color::Yellow));
+        frame.render_widget(Clear, overlay_area);
+        frame.render_widget(help_overlay, overlay_area);
+    }
 }
 
 fn render_team_panel(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) {
@@ -898,4 +948,17 @@ fn render_team_panel(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) 
         .block(Block::default().title("States").borders(Borders::ALL))
         .highlight_style(state_highlight);
     frame.render_stateful_widget(state_list, panels[1], &mut state_state);
+}
+
+fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
+    let width = width.min(area.width).max(1);
+    let height = height.min(area.height).max(1);
+    let x = area.x + (area.width.saturating_sub(width)) / 2;
+    let y = area.y + (area.height.saturating_sub(height)) / 2;
+    Rect {
+        x,
+        y,
+        width,
+        height,
+    }
 }
