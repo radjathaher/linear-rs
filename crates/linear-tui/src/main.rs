@@ -60,7 +60,34 @@ async fn run_app<B: ratatui::backend::Backend>(
         terminal.draw(|frame| render_app(frame, app))?;
 
         if event::poll(Duration::from_millis(200))? {
-            match event::read()? {
+            let evt = event::read()?;
+            if app.palette_active {
+                if let Event::Key(key) = evt {
+                    match key.code {
+                        KeyCode::Esc => {
+                            app.palette_active = false;
+                            app.palette_input.clear();
+                            app.status = "Exited command mode".into();
+                        }
+                        KeyCode::Enter => {
+                            let cmd = app.palette_input.clone();
+                            app.palette_active = false;
+                            app.palette_input.clear();
+                            app.execute_command(cmd).await;
+                        }
+                        KeyCode::Backspace => {
+                            app.palette_input.pop();
+                        }
+                        KeyCode::Char(c) => {
+                            app.palette_input.push(c);
+                        }
+                        _ => {}
+                    }
+                }
+                continue;
+            }
+
+            match evt {
                 Event::Key(key) => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => break,
                     KeyCode::Char('r') => app.load_issues().await,
@@ -104,34 +131,6 @@ async fn run_app<B: ratatui::backend::Backend>(
                         app.status = format!("Task error loading detail: {err}");
                         app.detail = None;
                     }
-                }
-            }
-        }
-
-        if app.palette_active {
-            if event::poll(Duration::from_millis(0))? {
-                match event::read()? {
-                    Event::Key(key) => match key.code {
-                        KeyCode::Esc => {
-                            app.palette_active = false;
-                            app.palette_input.clear();
-                            app.status = "Exited command mode".into();
-                        }
-                        KeyCode::Enter => {
-                            let cmd = app.palette_input.clone();
-                            app.palette_active = false;
-                            app.palette_input.clear();
-                            app.execute_command(cmd).await;
-                        }
-                        KeyCode::Backspace => {
-                            app.palette_input.pop();
-                        }
-                        KeyCode::Char(c) => {
-                            app.palette_input.push(c);
-                        }
-                        _ => {}
-                    },
-                    _ => {}
                 }
             }
         }
@@ -565,11 +564,22 @@ Updated: {}",
     let status = Paragraph::new(app.status.clone()).style(Style::default().fg(Color::Cyan));
     frame.render_widget(status, right_chunks[2]);
 
+    let help_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
+        .split(right_chunks[3]);
+
     let help = Paragraph::new(
         "Commands: r=refresh  tab=focus  j/k=move  t=team  s=state  :=command  q=quit",
     )
     .style(Style::default());
-    frame.render_widget(help, right_chunks[3]);
+    frame.render_widget(help, help_chunks[0]);
+
+    if app.palette_active {
+        let prompt = Paragraph::new(format!(":{}", app.palette_input))
+            .style(Style::default().fg(Color::Yellow));
+        frame.render_widget(prompt, help_chunks[1]);
+    }
 }
 
 fn render_team_panel(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) {
