@@ -314,6 +314,7 @@ impl App {
             .get(self.page)
             .and_then(|c| c.clone())
             .is_none()
+            && !self.page_cache.contains_key(&(self.page + 1))
         {
             self.set_status("Next page not yet available", false);
             return;
@@ -342,7 +343,7 @@ impl App {
             self.set_status(format!("Already on page {}", page + 1), false);
             return;
         }
-        if page > 0 && page > self.page_cursors.len() {
+        if page > 0 && page > self.page_cursors.len() && !self.page_cache.contains_key(&page) {
             self.set_status("Page not available; advance sequentially", false);
             return;
         }
@@ -352,6 +353,7 @@ impl App {
                 .get(page.saturating_sub(1))
                 .and_then(|c| c.clone())
                 .is_none()
+            && !self.page_cache.contains_key(&page)
         {
             self.set_status("Page not available; advance sequentially", false);
             return;
@@ -615,6 +617,27 @@ impl App {
             return;
         }
         let len = self.issues.len();
+        if delta > 0 && self.selected == len - 1 {
+            if self.has_next_page {
+                self.next_page().await;
+            } else {
+                self.set_status("Already at last page", false);
+            }
+            return;
+        }
+        if delta < 0 && self.selected == 0 {
+            if self.page > 0 {
+                self.previous_page().await;
+                if !self.issues.is_empty() {
+                    let last = self.issues.len().saturating_sub(1);
+                    self.abort_pending();
+                    self.select_issue(last);
+                }
+            } else {
+                self.set_status("Already at first issue", false);
+            }
+            return;
+        }
         let new_index = (self.selected as isize + delta).clamp(0, (len - 1) as isize) as usize;
         if new_index != self.selected {
             self.select_issue(new_index);
