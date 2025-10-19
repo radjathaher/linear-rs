@@ -93,6 +93,16 @@
 2. Activity tab stitches change history and comments, grouped by calendar day with `├─/└─` connectors.
 3. Switching away remembers the last tab per issue, so returning to the issue keeps the activity view.
 
+Example rendering:
+```
+2025-10-18
+├─ 14:32  Taylor – Comment: triage follow-up
+│  • Could we add telemetry to capture retry counts?
+└─ 13:10  Taylor – State: Todo → Doing
+2025-10-17
+└─ 09:05  System – Priority: 2 → 1
+```
+
 ### Inspect Sub-issue Tree
 ```
 [Issue Detail] --sub-issues--> Nested Tree View
@@ -101,6 +111,16 @@
 1. Use palette `sub-issues` (or `detail sub-issues`) to jump directly into the tree.
 2. Tree rows include identifier, title, state, assignee, and priority; children render recursively beneath parents.
 3. Tab persistence keeps the sub-issue tree active the next time the issue is selected.
+
+Example rendering:
+```
+└─ ENG-1234 Fix login flow
+   state: In Progress, assignee: Alex, priority: 1
+   ├─ ENG-1250 Update OAuth scopes
+   │  state: Todo, assignee: Priya, priority: 2
+   └─ ENG-1261 Improve error copy
+      state: Todo, assignee: -, priority: -
+```
 
 ## Structure & Files
 - `tui/app.rs`: application state, filter cache, palette/overlay orchestration.
