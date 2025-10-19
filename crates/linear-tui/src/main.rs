@@ -230,6 +230,21 @@ impl App {
         }
     }
 
+    fn filters_text(&self) -> String {
+        let team = self.current_team_label();
+        let state = self.current_state_label();
+        let contains = self
+            .title_contains
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(|s| format!("'{}'", s))
+            .unwrap_or_else(|| "-".into());
+        format!(
+            "Filters: team={}  state={}  title~{}",
+            team, state, contains
+        )
+    }
+
     fn status_tick(&mut self) {
         if self.status_spinner {
             self.spinner_index = (self.spinner_index + 1) % SPINNER_FRAMES.len();
@@ -711,6 +726,7 @@ fn render_app(frame: &mut Frame, app: &App) {
                 Constraint::Percentage(40),
                 Constraint::Length(1),
                 Constraint::Length(1),
+                Constraint::Length(1),
             ]
             .as_ref(),
         )
@@ -775,16 +791,19 @@ fn render_app(frame: &mut Frame, app: &App) {
     let detail = Paragraph::new(detail_text).block(detail_block);
     frame.render_widget(detail, right_chunks[1]);
 
+    let filters = Paragraph::new(app.filters_text()).style(Style::default().fg(Color::Gray));
+    frame.render_widget(filters, right_chunks[2]);
+
     let status = Paragraph::new(app.status_text()).style(Style::default().fg(Color::Cyan));
-    frame.render_widget(status, right_chunks[2]);
+    frame.render_widget(status, right_chunks[3]);
 
     let help_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
-        .split(right_chunks[3]);
+        .split(right_chunks[4]);
 
     let help = Paragraph::new(
-        "Commands: r=refresh  tab=focus  j/k=move  t=team  s=state  /=contains  :team/:state/:contains  q=quit",
+        "Commands: r=refresh  tab=focus  j/k=move  t=team  s=state  /=contains  clear/reload  :team/:state/:contains  q=quit",
     )
     .style(Style::default());
     frame.render_widget(help, help_chunks[0]);
