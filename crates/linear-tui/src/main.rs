@@ -11,7 +11,7 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Style};
 use ratatui::text::Line;
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, ListState};
+use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 use ratatui::{Frame, Terminal};
 use tokio::runtime::Runtime;
 use tokio::task::JoinHandle;
@@ -99,9 +99,7 @@ struct App {
     detail: Option<linear_core::graphql::IssueDetail>,
     status: String,
     selected: usize,
-    pending_detail: Option<
-        JoinHandle<Result<Option<linear_core::graphql::IssueDetail>>>,
-    >,
+    pending_detail: Option<JoinHandle<Result<Option<linear_core::graphql::IssueDetail>>>>,
 }
 
 impl App {
@@ -116,12 +114,12 @@ impl App {
     }
 
     async fn load_issues(&mut self) {
+        self.abort_pending();
         match fetch_issue_summaries().await {
             Ok((issues, detail)) => {
                 self.issues = issues;
                 self.detail = detail;
                 self.selected = 0;
-                self.pending_detail = None;
                 if self.detail.is_none() && !self.issues.is_empty() {
                     let first_key = self.issues[0].identifier.clone();
                     self.queue_detail_fetch(first_key);
@@ -134,7 +132,6 @@ impl App {
                 self.issues.clear();
                 self.detail = None;
                 self.selected = 0;
-                self.pending_detail = None;
                 self.status = format!("Error: {err}");
             }
         }
@@ -149,16 +146,26 @@ impl App {
         if new_index != self.selected {
             self.selected = new_index;
             if let Some(issue) = self.issues.get(self.selected) {
+                let key = issue.identifier.clone();
                 self.detail = None;
-                self.pending_detail = None;
-                self.status = format!("Loading {}...", issue.identifier);
-                self.queue_detail_fetch(issue.identifier.clone());
+                self.abort_pending();
+                self.status = format!("Loading {}...", key);
+                self.queue_detail_fetch(key);
             }
         }
     }
 
     fn queue_detail_fetch(&mut self, key: String) {
-        self.pending_detail = Some(tokio::spawn(fetch_issue_detail(key)));
+        self.pending_detail = Some(tokio::spawn(fetch_issue_detail(
+            DEFAULT_PROFILE.to_string(),
+            key,
+        )));
+    }
+
+    fn abort_pending(&mut self) {
+        if let Some(handle) = self.pending_detail.take() {
+            handle.abort();
+        }
     }
 }
 
@@ -183,7 +190,7 @@ async fn fetch_issue_summaries() -> Result<(
         .context("failed to fetch issues")?;
 
     let detail = if let Some(first) = issues.get(0) {
-        fetch_issue_detail(first.identifier.clone()).await?
+        fetch_issue_detail(DEFAULT_PROFILE.to_string(), first.identifier.clone()).await?
     } else {
         None
     };
@@ -191,8 +198,11 @@ async fn fetch_issue_summaries() -> Result<(
     Ok((issues, detail))
 }
 
-async fn fetch_issue_detail(key: String) -> Result<Option<linear_core::graphql::IssueDetail>> {
-    let session = load_session(DEFAULT_PROFILE).await?;
+async fn fetch_issue_detail(
+    profile: String,
+    key: String,
+) -> Result<Option<linear_core::graphql::IssueDetail>> {
+    let session = load_session(&profile).await?;
     let client =
         LinearGraphqlClient::from_session(&session).context("failed to build GraphQL client")?;
     let service = IssueService::new(client);
@@ -235,7 +245,8 @@ fn render_app(frame: &mut Frame, app: &App) {
             [
                 Constraint::Percentage(60),
                 Constraint::Percentage(40),
-                Constraint::Length(2),
+                Constraint::Length(1),
+                Constraint::Length(1),
             ]
             .as_ref(),
         )
@@ -287,4 +298,7 @@ Updated: {}",
 
     let status = Paragraph::new(app.status.clone()).style(Style::default().fg(Color::Cyan));
     frame.render_widget(status, chunks[2]);
+
+    let help = Paragraph::new("Commands: r=refresh  j/k=move  q=quit").style(Style::default());
+    frame.render_widget(help, chunks[3]);
 }
