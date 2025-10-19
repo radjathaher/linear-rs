@@ -13,6 +13,7 @@ use ratatui::style::{Color, Style};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 use ratatui::{Frame, Terminal};
+use textwrap::wrap;
 use tokio::runtime::Runtime;
 use tokio::task::JoinHandle;
 
@@ -680,19 +681,28 @@ fn render_app(frame: &mut Frame, app: &App) {
 
     let detail_block = Block::default().title("Details").borders(Borders::ALL);
     let detail_text = if let Some(issue) = &app.detail {
-        format!(
-            "{}
-
-State: {}
-Priority: {}
-Updated: {}",
-            issue.description.as_deref().unwrap_or("(no description)"),
-            issue.state.as_ref().map(|s| s.name.as_str()).unwrap_or("-"),
+        let width = right_chunks[1].width.saturating_sub(2).max(20) as usize;
+        let description = issue.description.as_deref().unwrap_or("(no description)");
+        let mut lines = wrap(description, width)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>();
+        lines.push(String::new());
+        lines.push(format!(
+            "State: {}",
+            issue.state.as_ref().map(|s| s.name.as_str()).unwrap_or("-")
+        ));
+        lines.push(format!(
+            "Priority: {}",
             issue
                 .priority
                 .map(|p| p.to_string())
-                .unwrap_or_else(|| "-".into()),
-            issue.updated_at.to_rfc3339()
+                .unwrap_or_else(|| "-".into())
+        ));
+        lines.push(format!("Updated: {}", issue.updated_at.to_rfc3339()));
+        lines.join(
+            "
+",
         )
     } else {
         "Select an issue to view details".into()
