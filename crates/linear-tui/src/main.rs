@@ -77,6 +77,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                     KeyCode::Tab => app.toggle_focus(),
                     KeyCode::Char('t') => app.move_team_selection(1).await,
                     KeyCode::Char('s') => app.move_state_selection(1).await,
+                    KeyCode::Char(':') => app.enter_palette(),
                     _ => {}
                 },
                 _ => {}
@@ -106,6 +107,34 @@ async fn run_app<B: ratatui::backend::Backend>(
                 }
             }
         }
+
+        if app.palette_active {
+            if event::poll(Duration::from_millis(0))? {
+                match event::read()? {
+                    Event::Key(key) => match key.code {
+                        KeyCode::Esc => {
+                            app.palette_active = false;
+                            app.palette_input.clear();
+                            app.status = "Exited command mode".into();
+                        }
+                        KeyCode::Enter => {
+                            let cmd = app.palette_input.clone();
+                            app.palette_active = false;
+                            app.palette_input.clear();
+                            app.execute_command(cmd).await;
+                        }
+                        KeyCode::Backspace => {
+                            app.palette_input.pop();
+                        }
+                        KeyCode::Char(c) => {
+                            app.palette_input.push(c);
+                        }
+                        _ => {}
+                    },
+                    _ => {}
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -123,6 +152,8 @@ struct App {
     states: Vec<WorkflowStateSummary>,
     state_index: Option<usize>,
     states_team_id: Option<String>,
+    palette_active: bool,
+    palette_input: String,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -147,6 +178,8 @@ impl App {
             states: Vec::new(),
             state_index: None,
             states_team_id: None,
+            palette_active: false,
+            palette_input: String::new(),
         }
     }
 
@@ -338,6 +371,61 @@ impl App {
             Focus::States => "Focus: states".into(),
         };
     }
+
+    fn enter_palette(&mut self) {
+        self.palette_active = true;
+        self.palette_input.clear();
+        self.status = "Command mode (: to exit)".into();
+    }
+
+    async fn execute_command(&mut self, command: String) {
+        let cmd = command.trim();
+        if cmd.starts_with("team ") {
+            let team_key = cmd.trim_start_matches("team ").trim();
+            self.ensure_teams().await;
+            self.team_index = self
+                .teams
+                .iter()
+                .position(|team| team.key.eq_ignore_ascii_case(team_key));
+            if self.team_index.is_none() {
+                self.status = format!("Team '{}' not found", team_key);
+            } else {
+                self.states.clear();
+                self.state_index = None;
+                self.states_team_id = None;
+                self.status = format!("Command: team {}", team_key);
+                self.load_issues().await;
+            }
+        } else if cmd.starts_with("state ") {
+            let state_name = cmd.trim_start_matches("state ").trim();
+            self.ensure_states().await;
+            if self.states.is_empty() {
+                self.status = "Load a team with workflow states first".into();
+            } else {
+                self.state_index = self
+                    .states
+                    .iter()
+                    .position(|state| state.name.eq_ignore_ascii_case(state_name));
+                if self.state_index.is_none() {
+                    self.status = format!("State '{}' not found", state_name);
+                } else {
+                    self.status = format!("Command: state {}", state_name);
+                    self.load_issues().await;
+                }
+            }
+        } else if cmd == "clear" {
+            self.team_index = None;
+            self.state_index = None;
+            self.states_team_id = None;
+            self.states.clear();
+            self.status = "Cleared filters".into();
+            self.load_issues().await;
+        } else if !cmd.is_empty() {
+            self.status = format!("Unknown command: {}", cmd);
+        } else {
+            self.status = "Command mode exited".into();
+        }
+    }
 }
 
 async fn fetch_issue_summaries(
@@ -406,7 +494,7 @@ fn build_oauth_config() -> Result<OAuthConfig> {
 fn render_app(frame: &mut Frame, app: &App) {
     let layout = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(24), Constraint::Min(1)])
+        .constraints([Constraint::Length(28), Constraint::Min(1)])
         .split(frame.size());
 
     render_team_panel(frame, layout[0], app);
@@ -477,9 +565,10 @@ Updated: {}",
     let status = Paragraph::new(app.status.clone()).style(Style::default().fg(Color::Cyan));
     frame.render_widget(status, right_chunks[2]);
 
-    let help =
-        Paragraph::new("Commands: r=refresh  tab=switch focus  j/k=move  t=next-team  q=quit")
-            .style(Style::default());
+    let help = Paragraph::new(
+        "Commands: r=refresh  tab=focus  j/k=move  t=team  s=state  :=command  q=quit",
+    )
+    .style(Style::default());
     frame.render_widget(help, right_chunks[3]);
 }
 
