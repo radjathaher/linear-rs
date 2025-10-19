@@ -215,7 +215,7 @@ struct IssueCreateArgs {
     #[arg(long, default_value = DEFAULT_PROFILE)]
     profile: String,
     /// Team key/name/id for the issue (resolved automatically)
-    #[arg(long = "team", required_unless_present = "team-id")]
+    #[arg(long = "team", required_unless_present = "team_id")]
     team: Option<String>,
     /// Explicit team id for the issue
     #[arg(long = "team-id", required_unless_present = "team")]
