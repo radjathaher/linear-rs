@@ -36,6 +36,7 @@ linear-rs/
 ### `linear-cli`
 - Depends on `clap` derive for command tree (`linear auth login`, `linear auth logout`, `linear issue list`, `linear issue view <issue-key>`, `linear issue create`, `linear project list`, `linear cycle list`, `linear sync`).
 - `linear auth login` supports browser (`--browser`), manual (`--manual`), API key (`--api-key`), and client-credentials (`--client-credentials --scope`) modes with environment-driven defaults (`LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET`, `LINEAR_REDIRECT_URI`, optional `LINEAR_SCOPES`).
+- `linear user me` surfaces the authenticated account via the GraphQL `viewer` query; `linear issue list/view` consume the shared GraphQL services for recent issues and detailed inspection.
 - Uses `linear-core` services; formatting handled with `owo-colors` or `colored`; supports JSON/YAML output for scripting.
 - Implements interactive selection helpers (e.g., `fzf`-style search using `skimmer` when terminal supports raw mode).
 

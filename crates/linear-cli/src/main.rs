@@ -6,7 +6,7 @@ use linear_core::auth::{
     AuthFlow, AuthManager, CredentialStore, FileCredentialStore, FlowPreference, OAuthClient,
     OAuthConfig,
 };
-use linear_core::graphql::{LinearGraphqlClient, Viewer};
+use linear_core::graphql::{IssueDetail, IssueSummary, LinearGraphqlClient, Viewer};
 use tokio::task;
 use url::Url;
 
@@ -28,6 +28,9 @@ enum Commands {
     /// User account details
     #[command(subcommand)]
     User(UserCommand),
+    /// Issue operations
+    #[command(subcommand)]
+    Issue(IssueCommand),
 }
 
 #[derive(Subcommand, Debug)]
@@ -46,6 +49,39 @@ enum UserCommand {
 
 #[derive(Args, Debug)]
 struct MeArgs {
+    /// Profile name for stored credentials
+    #[arg(long, default_value = DEFAULT_PROFILE)]
+    profile: String,
+    /// Output raw JSON
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Subcommand, Debug)]
+enum IssueCommand {
+    /// List recent issues
+    List(IssueListArgs),
+    /// View a single issue by key (e.g. ENG-123)
+    View(IssueViewArgs),
+}
+
+#[derive(Args, Debug)]
+struct IssueListArgs {
+    /// Profile name for stored credentials
+    #[arg(long, default_value = DEFAULT_PROFILE)]
+    profile: String,
+    /// Maximum number of issues to return
+    #[arg(long, default_value_t = 20)]
+    limit: usize,
+    /// Output raw JSON
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Args, Debug)]
+struct IssueViewArgs {
+    /// Issue key (e.g. ENG-123)
+    key: String,
     /// Profile name for stored credentials
     #[arg(long, default_value = DEFAULT_PROFILE)]
     profile: String,
@@ -96,6 +132,10 @@ async fn main() -> Result<()> {
         },
         Commands::User(cmd) => match cmd {
             UserCommand::Me(args) => user_me(args).await?,
+        },
+        Commands::Issue(cmd) => match cmd {
+            IssueCommand::List(args) => issue_list(args).await?,
+            IssueCommand::View(args) => issue_view(args).await?,
         },
     }
     Ok(())
@@ -314,4 +354,124 @@ fn render_viewer(viewer: &Viewer) {
         println!("Email     : {}", email);
     }
     println!("Created   : {}", viewer.created_at.to_rfc3339());
+}
+
+async fn issue_list(args: IssueListArgs) -> Result<()> {
+    let session = load_session(&args.profile).await?;
+    let client = LinearGraphqlClient::from_session(&session)
+        .context("failed to build GraphQL client")?;
+    let issues = client
+        .list_issues(args.limit)
+        .await
+        .context("GraphQL request failed")?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&issues)?);
+    } else {
+        render_issue_list(&issues);
+    }
+
+    Ok(())
+}
+
+async fn issue_view(args: IssueViewArgs) -> Result<()> {
+    let session = load_session(&args.profile).await?;
+    let client = LinearGraphqlClient::from_session(&session)
+        .context("failed to build GraphQL client")?;
+    let issue = client
+        .issue_by_key(&args.key)
+        .await
+        .context("GraphQL request failed")?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&issue)?);
+    } else {
+        render_issue_detail(&issue);
+    }
+
+    Ok(())
+}
+
+fn render_issue_list(issues: &[IssueSummary]) {
+    println!(
+        "{:<12} {:<40} {:<16} {:<20} {:<8}",
+        "IDENTIFIER", "TITLE", "STATE", "ASSIGNEE", "PRIOR"
+    );
+    println!("{}", "-".repeat(100));
+    for issue in issues {
+        let state = issue
+            .state
+            .as_ref()
+            .map(|s| s.name.as_str())
+            .unwrap_or("-");
+        let assignee = issue
+            .assignee
+            .as_ref()
+            .and_then(|a| a.display_name.as_deref().or(a.name.as_deref()))
+            .unwrap_or("-");
+        println!(
+            "{:<12} {:<40} {:<16} {:<20} {:<8}",
+            issue.identifier,
+            truncate(&issue.title, 40),
+            truncate(state, 16),
+            truncate(assignee, 20),
+            issue.priority.map_or("-".to_string(), |p| p.to_string())
+        );
+    }
+}
+
+fn render_issue_detail(issue: &IssueDetail) {
+    println!("{} — {}", issue.identifier, issue.title);
+    if let Some(url) = &issue.url {
+        println!("URL       : {}", url);
+    }
+    if let Some(state) = &issue.state {
+        println!("State     : {}", state.name);
+    }
+    if let Some(assignee) = &issue.assignee {
+        let name = assignee
+            .display_name
+            .as_ref()
+            .or(assignee.name.as_ref())
+            .cloned()
+            .unwrap_or_else(|| "Unassigned".into());
+        println!("Assignee  : {}", name);
+    }
+    if let Some(priority) = issue.priority {
+        println!("Priority  : {}", priority);
+    }
+    let labels = issue
+        .labels
+        .as_ref()
+        .map(|c| c.nodes.iter().map(|l| l.name.as_str()).collect::<Vec<_>>())
+        .unwrap_or_default();
+    if !labels.is_empty() {
+        println!("Labels    : {}", labels.join(", "));
+    }
+    println!("Created   : {}", issue.created_at.to_rfc3339());
+    println!("Updated   : {}", issue.updated_at.to_rfc3339());
+
+    if let Some(description) = &issue.description {
+        if !description.trim().is_empty() {
+            println!("\n{}
+", description.trim());
+        }
+    }
+}
+
+fn truncate(value: &str, max_len: usize) -> String {
+    let mut chars = value.chars();
+    let mut collected = String::new();
+    for _ in 0..max_len.saturating_sub(1) {
+        match chars.next() {
+            Some(ch) => collected.push(ch),
+            None => return value.to_owned(),
+        }
+    }
+    if chars.next().is_some() {
+        collected.push('…');
+        collected
+    } else {
+        value.to_owned()
+    }
 }
