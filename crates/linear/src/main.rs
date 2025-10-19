@@ -444,9 +444,6 @@ fn render_viewer(viewer: &Viewer) {
     if let Some(display) = &viewer.display_name {
         println!("Display   : {}", display);
     }
-    if let Some(handle) = &viewer.handle {
-        println!("Handle    : @{}", handle);
-    }
     if let Some(email) = &viewer.email {
         println!("Email     : {}", email);
     }

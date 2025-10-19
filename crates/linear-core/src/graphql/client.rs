@@ -78,7 +78,6 @@ impl LinearGraphqlClient {
                     name
                     email
                     displayName
-                    handle
                     createdAt
                 }
             }
@@ -223,8 +222,8 @@ impl LinearGraphqlClient {
         }
 
         const QUERY: &str = r#"
-            query ListIssues($first: Int!, $filter: IssueFilterInput, $after: String) {
-                issues(first: $first, filter: $filter, orderBy: updatedAt, sortOrder: Desc, after: $after) {
+            query ListIssues($first: Int!, $filter: IssueFilter, $after: String) {
+                issues(first: $first, filter: $filter, orderBy: updatedAt, after: $after) {
                     edges {
                         cursor
                         node {
@@ -236,7 +235,7 @@ impl LinearGraphqlClient {
                         createdAt
                         updatedAt
                         state { id name type }
-                        assignee { id name displayName handle }
+                        assignee { id name displayName }
                     }
                     }
                     pageInfo {
@@ -302,7 +301,7 @@ impl LinearGraphqlClient {
                         createdAt
                         updatedAt
                         state { id name type }
-                        assignee { id name displayName handle }
+                        assignee { id name displayName }
                         labels(first: 20) {
                             nodes { id name color }
                         }
@@ -379,7 +378,7 @@ impl LinearGraphqlClient {
                         createdAt
                         updatedAt
                         state { id name type }
-                        assignee { id name displayName handle }
+                        assignee { id name displayName }
                         labels(first: 20) {
                             nodes { id name color }
                         }
@@ -463,7 +462,6 @@ pub struct Viewer {
     pub name: Option<String>,
     pub display_name: Option<String>,
     pub email: Option<String>,
-    pub handle: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -516,7 +514,6 @@ pub struct IssueAssignee {
     pub id: String,
     pub name: Option<String>,
     pub display_name: Option<String>,
-    pub handle: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -646,7 +643,6 @@ mod tests {
                         "name": "Ada Lovelace",
                         "displayName": "Ada",
                         "email": "ada@example.com",
-                        "handle": "ada",
                         "createdAt": "2024-01-01T00:00:00.000Z"
                     }
                 }
@@ -662,7 +658,6 @@ mod tests {
         let viewer = client.viewer().await.unwrap();
         mock.assert();
         assert_eq!(viewer.id, "user-1");
-        assert_eq!(viewer.handle.as_deref(), Some("ada"));
     }
 
     #[tokio::test]
@@ -685,7 +680,7 @@ mod tests {
                                     "createdAt": "2024-07-01T12:00:00.000Z",
                                     "updatedAt": "2024-07-02T12:00:00.000Z",
                                     "state": { "id": "state-1", "name": "Todo", "type": "backlog" },
-                                    "assignee": { "id": "user-1", "name": "Ada", "displayName": "Ada", "handle": "ada" }
+                                    "assignee": { "id": "user-1", "name": "Ada", "displayName": "Ada" }
                                 }
                             }
                         ],
@@ -761,7 +756,7 @@ mod tests {
                             "createdAt": "2024-07-03T12:00:00.000Z",
                             "updatedAt": "2024-07-03T12:00:00.000Z",
                             "state": { "id": "state-1", "name": "Todo", "type": "backlog" },
-                            "assignee": { "id": "user-1", "name": "Ada", "displayName": "Ada", "handle": "ada" },
+                            "assignee": { "id": "user-1", "name": "Ada", "displayName": "Ada" },
                             "labels": {
                                 "nodes": [
                                     { "id": "label-1", "name": "bug", "color": "#ff0000" }
