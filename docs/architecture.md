@@ -20,9 +20,9 @@ linear-rs/
 | Area | Responsibility |
 | --- | --- |
 | **Auth** | Consolidates OAuth2 PKCE, manual copy/paste fallback, and personal API key flows through `AuthManager`. Credentials are kept in a pluggable `CredentialStore` (filesystem-backed by default). |
-| **GraphQL client** | Thin async client built on `reqwest`, targeting `https://api.linear.app/graphql`. It assembles raw queries/mutations and materialises strongly-typed structs (`IssueDetail`, `ProjectDetail`, `CycleSummary`, etc). Error handling normalises HTTP failures, GraphQL errors, and deserialization issues into `GraphqlError`. |
+| **GraphQL client** | Thin async client built on `reqwest`, targeting `https://api.linear.app/graphql`. It assembles raw queries/mutations and materialises strongly-typed structs (`IssueDetail`, `ProjectDetail`, `CycleSummary`, etc). Issue detail hydration also fetches recent comments, change history, and the nested sub-issue tree in one round trip. Error handling normalises HTTP failures, GraphQL errors, and deserialization issues into `GraphqlError`. |
 | **Services** | Domain helpers wrap the raw client and add conveniences: |
-| &nbsp; | • `IssueService` – list/filter issues, resolve team/state names, create/update/archive/delete issues, and add comments. |
+| &nbsp; | • `IssueService` – list/filter issues, resolve team/state names, create/update/archive/delete issues, add comments, and surface richer detail payloads (history + sub-issues). |
 | &nbsp; | • `ProjectService` – list projects with filter/sort, create/update/archive. |
 | &nbsp; | • `CycleService` – list cycles for selected teams and update cycle metadata. |
 | &nbsp; | • `LabelService` – list/create/update issue labels for a team. |
@@ -34,7 +34,7 @@ linear-rs/
 | --- | --- |
 | **CLI** | Built with `clap` derive. Subcommands mirror the shared services (`issue`, `project`, `cycle`, `label`, `team`, `state`, `auth`, `user`). Every nested command has `--help`, JSON output toggles, and consistent pagination/filter/sort flags (see `docs/cli.md`). CLI flows are intentionally synchronous and surface friendly error messages. |
 | **Output helpers** | When not in JSON mode, the CLI prints fixed-width tables and multi-line detail blocks with Markdown stripped via `pulldown-cmark`, matching terminal width where possible. |
-| **TUI** | Ratatui-based dashboard showing issues, teams, and states. Enhancements in this iteration include: persistent keymap pane, `p` overlay for the latest projects, `y` overlay for cycles scoped to the selected team, command palette history, and help overlays. |
+| **TUI** | Ratatui-based dashboard showing issues, teams, and states. Enhancements in this iteration include: persistent keymap pane, `p` overlay for the latest projects, `y` overlay for cycles scoped to the selected team, command palette history, help overlays, an activity timeline (comments + history), and a nested sub-issue tree with palette shortcuts. |
 | **Command dispatch** | `main.rs` translates parsed Clap args into service calls, performing any necessary ID resolution (e.g. translating team keys/state names to IDs before hitting GraphQL). |
 
 ## Request Flow
