@@ -299,6 +299,63 @@ impl LinearGraphqlClient {
                         nodes { id name color }
                     }
                     team { id name key }
+                    comments(last: 20) {
+                        nodes {
+                            id
+                            body
+                            createdAt
+                            updatedAt
+                            user { id name displayName }
+                        }
+                    }
+                    history(last: 50) {
+                        nodes {
+                            __typename
+                            id
+                            createdAt
+                            updatedAt
+                            fromState { id name type }
+                            toState { id name type }
+                            fromAssignee { id name displayName }
+                            toAssignee { id name displayName }
+                            fromPriority
+                            toPriority
+                            fromDueDate
+                            toDueDate
+                            fromTitle
+                            toTitle
+                            updatedDescription
+                            actors { id name displayName }
+                        }
+                    }
+                    children(first: 50) {
+                        nodes {
+                            id
+                            identifier
+                            title
+                            url
+                            priority
+                            createdAt
+                            updatedAt
+                            state { id name type }
+                            assignee { id name displayName }
+                            team { id name key }
+                            children(first: 25) {
+                                nodes {
+                                    id
+                                    identifier
+                                    title
+                                    url
+                                    priority
+                                    createdAt
+                                    updatedAt
+                                    state { id name type }
+                                    assignee { id name displayName }
+                                    team { id name key }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         "#;
@@ -1512,6 +1569,10 @@ pub struct IssueDetail {
     pub team: Option<TeamSummary>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub comments: Option<CommentConnection>,
+    pub history: Option<IssueHistoryConnection>,
+    #[serde(rename = "children")]
+    pub sub_issues: Option<IssueSubIssueConnection>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1541,6 +1602,63 @@ pub struct IssueLabel {
     pub id: String,
     pub name: String,
     pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommentConnection {
+    pub nodes: Vec<Comment>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueHistoryConnection {
+    pub nodes: Vec<IssueHistory>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueHistory {
+    #[serde(rename = "__typename")]
+    pub typename: String,
+    pub id: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub from_state: Option<IssueState>,
+    pub to_state: Option<IssueState>,
+    pub from_assignee: Option<IssueAssignee>,
+    pub to_assignee: Option<IssueAssignee>,
+    pub from_priority: Option<i32>,
+    pub to_priority: Option<i32>,
+    pub from_due_date: Option<String>,
+    pub to_due_date: Option<String>,
+    pub from_title: Option<String>,
+    pub to_title: Option<String>,
+    pub updated_description: Option<String>,
+    #[serde(default)]
+    pub actors: Vec<UserSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueSubIssueConnection {
+    pub nodes: Vec<IssueSubIssue>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueSubIssue {
+    pub id: String,
+    pub identifier: String,
+    pub title: String,
+    pub url: Option<String>,
+    pub state: Option<IssueState>,
+    pub assignee: Option<IssueAssignee>,
+    pub priority: Option<i32>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub team: Option<TeamSummary>,
+    pub children: Option<IssueSubIssueConnection>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
