@@ -60,11 +60,11 @@
                                |--(s)--> Update Status
                                |--(a)--> Assign User
                                |--(Ctrl+Enter)--> CLI Automation stub (issue command)
-                               '--(x)--> Expand Sub-issues -> Inline actions
+                               '--(activity/sub-issues palette)--> Switch context tabs
 ```
 1. Use filters (team/project/status) if needed.
-2. Navigate issues with `j/k`, open detail (`o`).
-3. Update status (`s`) or assign (`a`), adjust sub-issues (`x` to expand, `.` actions).
+2. Navigate issues with `j/k`; the detail pane updates automatically for the highlighted issue.
+3. Update status (`s`) or assign (`a`), and jump between tabs with `.` / `,` or palette shorthands (`activity`, `sub-issues`).
 4. Trigger CLI automation (`Ctrl+Enter`) for scripted tasks (e.g., create sub-issue).
 
 ### Cycle Project Filter
