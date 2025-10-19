@@ -31,10 +31,15 @@ Keys:
 - `Tab` cycle focus between teams, states, issues
 - `j/k` navigate within focused list
 - `t`/`s` cycle team/state filters
-- `:` open command palette (history with ↑/↓, commands: `team <key>`, `state <name>`, `clear`, `reload`)
+- `:` open command palette (history with ↑/↓). Useful commands: `team <key>`, `state <name>`, `project <name|next|prev|clear>`, `status <todo|doing|done|all>`, `activity`, `sub-issues`, `detail <tab>`.
 - `p` toggle the projects overlay (fetches latest projects)
 - `y` toggle the cycles overlay (uses selected team when available)
 - `?` open contextual help; `/` filter issues by title snippet
+- `.` / `,` cycle detail tabs (Summary, Description, Activity, Sub-issues); tab choice is remembered per issue
+
+Detail pane highlights:
+- Activity tab merges comments and change history into a chronological timeline with local timestamps.
+- Sub-issues tab renders a nested tree showing state, assignee, priority, and team for each child issue.
 
 CLI issue detail output strips basic Markdown (via `pulldown-cmark`) and wraps descriptions to 80 characters for readability.
 
