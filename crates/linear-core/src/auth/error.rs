@@ -22,4 +22,18 @@ pub enum AuthError {
     RefreshUnavailable,
     #[error("invalid URL: {0}")]
     Url(#[from] url::ParseError),
+    #[error("authorization listener terminated before receiving redirect")]
+    ListenerClosed,
+    #[error("authorization flow cancelled")]
+    Cancelled,
+    #[error("authorization request denied ({0})")]
+    AccessDenied(String),
+    #[error("authorization response missing code parameter")]
+    MissingAuthorizationCode,
+    #[error("authorization state mismatch")]
+    StateMismatch,
+    #[error("failed to launch system browser: {0}")]
+    BrowserLaunch(String),
+    #[error("invalid authorization response: {0}")]
+    InvalidAuthorizationResponse(String),
 }

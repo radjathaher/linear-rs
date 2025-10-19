@@ -1,13 +1,18 @@
+mod browser;
 mod credential_store;
 mod error;
 mod flow;
+mod manual;
 mod oauth;
 mod pkce;
 mod session;
+mod utils;
 
+pub use browser::run_loopback_flow;
 pub use credential_store::{CredentialStore, CredentialStoreFactory, FileCredentialStore};
 pub use error::AuthError;
 pub use flow::{AuthFlow, FlowPreference};
+pub use manual::run_manual_flow;
 pub use oauth::{OAuthClient, OAuthConfig, OAuthEndpoints, TokenExchangeResult};
 pub use pkce::PkcePair;
 pub use session::{AuthSession, TokenType};

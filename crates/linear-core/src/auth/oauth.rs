@@ -91,6 +91,25 @@ impl OAuthClient {
         })
     }
 
+    /// Clone the OAuth client while overriding the redirect URI.
+    pub fn clone_with_redirect(&self, redirect_uri: Url) -> Self {
+        let mut config = self.config.clone();
+        config.redirect_uri = redirect_uri;
+        Self {
+            http: self.http.clone(),
+            config,
+            endpoints: self.endpoints.clone(),
+        }
+    }
+
+    pub fn config(&self) -> &OAuthConfig {
+        &self.config
+    }
+
+    pub fn endpoints(&self) -> &OAuthEndpoints {
+        &self.endpoints
+    }
+
     pub fn authorization_url(&self, pkce: &PkcePair, state: &str) -> Result<Url, AuthError> {
         let mut url = self.endpoints.authorization_url.clone();
         {
