@@ -6,8 +6,8 @@ use serde_json::{json, Map, Value};
 use tokio::sync::RwLock;
 
 use crate::graphql::{
-    GraphqlResult, IssueDetail, IssueListParams, IssueSummary, LinearGraphqlClient, TeamSummary,
-    WorkflowStateSummary,
+    GraphqlResult, IssueDetail, IssueListParams, IssueListResponse, IssueSummary,
+    LinearGraphqlClient, TeamSummary, WorkflowStateSummary,
 };
 
 /// Provides higher-level helpers around Linear issues.
@@ -27,7 +27,7 @@ impl IssueService {
 
     pub async fn list(&self, options: IssueQueryOptions) -> GraphqlResult<IssueListResult> {
         let params = options.into_params();
-        let response = self.client.list_issues(params).await?;
+        let response: IssueListResponse = self.client.list_issues(params).await?;
         Ok(IssueListResult {
             issues: response.nodes,
             end_cursor: response.end_cursor,

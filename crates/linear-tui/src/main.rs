@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io;
 use std::time::Duration;
 
@@ -201,6 +202,7 @@ struct App {
     show_help_overlay: bool,
     page: usize,
     has_next_page: bool,
+    page_cache: HashMap<usize, PageData>,
     page_cursors: Vec<Option<String>>,
 }
 
@@ -236,6 +238,7 @@ impl App {
             show_help_overlay: false,
             page: 0,
             has_next_page: false,
+            page_cache: HashMap::new(),
             page_cursors: Vec::new(),
         }
     }
@@ -290,6 +293,7 @@ impl App {
     fn reset_pagination(&mut self) {
         self.page = 0;
         self.has_next_page = false;
+        self.page_cache.clear();
         self.page_cursors.clear();
     }
 
@@ -386,6 +390,11 @@ impl App {
             return;
         };
 
+        if let Some(cached) = self.page_cache.get(&self.page).cloned() {
+            self.apply_page_data(cached, previous_key.clone(), true);
+            return;
+        }
+
         match fetch_issue_summaries(
             &self.service,
             self.current_team_id(),
@@ -396,80 +405,10 @@ impl App {
         )
         .await
         {
-            Ok(IssueListResult {
-                issues,
-                end_cursor,
-                has_next_page,
-            }) => {
-                self.has_next_page = has_next_page;
-                if self.page_cursors.len() <= self.page {
-                    self.page_cursors.resize(self.page + 1, None);
-                }
-                self.page_cursors[self.page] = end_cursor;
-                self.page_cursors.truncate(self.page + 1);
-
-                if issues.is_empty() {
-                    self.issues.clear();
-                    self.detail = None;
-                    self.selected = 0;
-                    self.set_status(
-                        format!(
-                            "No issues match filters (team: {}, state: {}, page: {})",
-                            self.current_team_label(),
-                            self.current_state_label(),
-                            self.page + 1
-                        ),
-                        false,
-                    );
-                    return;
-                }
-
-                let mut selected_index = 0;
-                if let Some(prev_key) = previous_key.as_ref() {
-                    if let Some(idx) = issues
-                        .iter()
-                        .position(|issue| issue.identifier.eq_ignore_ascii_case(prev_key))
-                    {
-                        selected_index = idx;
-                    }
-                }
-
-                if selected_index >= issues.len() {
-                    selected_index = 0;
-                }
-
-                let selected_identifier = issues[selected_index].identifier.clone();
-                let detail_matches = self
-                    .detail
-                    .as_ref()
-                    .map(|d| d.identifier.eq_ignore_ascii_case(&selected_identifier))
-                    .unwrap_or(false);
-
-                self.issues = issues;
-                self.selected = selected_index;
-
-                if detail_matches {
-                    self.set_status(
-                        format!(
-                            "Loaded {} issues (team: {}, state: {}, page: {})",
-                            self.issues.len(),
-                            self.current_team_label(),
-                            self.current_state_label(),
-                            self.page + 1
-                        ),
-                        false,
-                    );
-                } else {
-                    self.detail = None;
-                    self.queue_detail_fetch(selected_identifier.clone());
-                    self.set_spinner_status(format!(
-                        "Loading {}... (team: {}, state: {}, page: {})",
-                        selected_identifier,
-                        self.current_team_label(),
-                        self.current_state_label(),
-                        self.page + 1
-                    ));
-                }
+            Ok(result) => {
+                let page_data = PageData::from(result);
+                self.page_cache.insert(self.page, page_data.clone());
+                self.apply_page_data(page_data, previous_key, false);
             }
             Err(err) => {
                 self.issues.clear();
@@ -484,6 +423,89 @@ impl App {
         self.title_contains = contains;
         self.reset_pagination();
         self.load_issues_with_filters().await;
+    }
+
+    fn apply_page_data(&mut self, data: PageData, previous_key: Option<String>, from_cache: bool) {
+        self.has_next_page = data.has_next_page;
+        if self.page_cursors.len() <= self.page {
+            self.page_cursors.resize(self.page + 1, None);
+        }
+        self.page_cursors[self.page] = data.end_cursor.clone();
+
+        if data.issues.is_empty() {
+            self.issues.clear();
+            self.detail = None;
+            self.selected = 0;
+            self.set_status(
+                format!(
+                    "No issues match filters (team: {}, state: {}, page: {})",
+                    self.current_team_label(),
+                    self.current_state_label(),
+                    self.page + 1
+                ),
+                false,
+            );
+            return;
+        }
+
+        let mut selected_index = 0;
+        if let Some(prev_key) = previous_key {
+            if let Some(idx) = data
+                .issues
+                .iter()
+                .position(|issue| issue.identifier.eq_ignore_ascii_case(&prev_key))
+            {
+                selected_index = idx;
+            }
+        }
+
+        if selected_index >= data.issues.len() {
+            selected_index = 0;
+        }
+
+        let selected_identifier = data.issues[selected_index].identifier.clone();
+        let detail_matches = self
+            .detail
+            .as_ref()
+            .map(|d| d.identifier.eq_ignore_ascii_case(&selected_identifier))
+            .unwrap_or(false);
+
+        self.issues = data.issues;
+        self.selected = selected_index;
+
+        if detail_matches {
+            self.set_status(
+                format!(
+                    "Loaded {} issues (team: {}, state: {}, page: {})",
+                    self.issues.len(),
+                    self.current_team_label(),
+                    self.current_state_label(),
+                    self.page + 1
+                ),
+                false,
+            );
+        } else {
+            self.detail = None;
+            let message = if from_cache {
+                format!(
+                    "Refreshing {} (team: {}, state: {}, page: {})",
+                    selected_identifier,
+                    self.current_team_label(),
+                    self.current_state_label(),
+                    self.page + 1
+                )
+            } else {
+                format!(
+                    "Loading {}... (team: {}, state: {}, page: {})",
+                    selected_identifier,
+                    self.current_team_label(),
+                    self.current_state_label(),
+                    self.page + 1
+                )
+            };
+            self.set_spinner_status(message);
+            self.queue_detail_fetch(selected_identifier);
+        }
     }
 
     fn select_issue(&mut self, index: usize) {
@@ -802,8 +824,6 @@ impl App {
             if term.is_empty() {
                 lines.push(Line::from("page next"));
                 lines.push(Line::from("page prev"));
-                lines.push(Line::from("page first"));
-                lines.push(Line::from("page last"));
                 lines.push(Line::from(format!("page {}", self.page + 1)));
             } else if term.chars().all(|c| c.is_ascii_digit()) {
                 lines.push(Line::from(format!("page {}", term)));
@@ -824,6 +844,7 @@ impl App {
                 Line::from("view last"),
                 Line::from("page next"),
                 Line::from("page prev"),
+                Line::from("page <number>"),
                 Line::from("clear"),
                 Line::from("reload"),
                 Line::from("help"),
@@ -1104,6 +1125,23 @@ async fn fetch_issue_detail(
     key: String,
 ) -> Result<Option<linear_core::graphql::IssueDetail>> {
     Ok(service.get_by_key(&key).await.ok())
+}
+
+#[derive(Clone)]
+struct PageData {
+    issues: Vec<linear_core::graphql::IssueSummary>,
+    end_cursor: Option<String>,
+    has_next_page: bool,
+}
+
+impl From<IssueListResult> for PageData {
+    fn from(result: IssueListResult) -> Self {
+        Self {
+            issues: result.issues,
+            end_cursor: result.end_cursor,
+            has_next_page: result.has_next_page,
+        }
+    }
 }
 
 async fn load_session(profile: &str) -> Result<linear_core::auth::AuthSession> {
