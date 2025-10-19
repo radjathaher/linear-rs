@@ -1,0 +1,19 @@
+[workspace]
+members = [
+    "crates/linear-core",
+    "crates/linear-cli",
+    "crates/linear-tui",
+    "crates/linear-codegen",
+    "xtask",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+version = "0.1.0"
+authors = ["radjathaher <radjathaher@example.com>"]
+rust-version = "1.76"
+
+[workspace.metadata]
+description = "Terminal tools for Linear (CLI + TUI) powered by Rust."
