@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use reqwest::{Client, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use thiserror::Error;
 use url::Url;
 
@@ -97,10 +98,12 @@ impl LinearGraphqlClient {
     }
 
     /// Fetch a list of recent issues.
-    pub async fn list_issues(&self, first: usize) -> GraphqlResult<Vec<IssueSummary>> {
+    pub async fn list_issues(&self, params: IssueListParams) -> GraphqlResult<Vec<IssueSummary>> {
         #[derive(Serialize)]
         struct Variables {
             first: i64,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            filter: Option<Value>,
         }
 
         #[derive(Serialize)]
@@ -115,8 +118,8 @@ impl LinearGraphqlClient {
         }
 
         const QUERY: &str = r#"
-            query ListIssues($first: Int!) {
-                issues(first: $first, orderBy: updatedAt, sortOrder: Desc) {
+            query ListIssues($first: Int!, $filter: IssueFilterInput) {
+                issues(first: $first, filter: $filter, orderBy: updatedAt, sortOrder: Desc) {
                     nodes {
                         id
                         identifier
@@ -136,7 +139,8 @@ impl LinearGraphqlClient {
             .post(Request {
                 query: QUERY,
                 variables: Variables {
-                    first: first as i64,
+                    first: params.first as i64,
+                    filter: params.filter,
                 },
             })
             .await?;
@@ -145,11 +149,7 @@ impl LinearGraphqlClient {
             return Err(GraphqlError::ResponseErrors(errors));
         }
 
-        let data = response
-            .data
-            .ok_or(GraphqlError::NotFound)?
-            .issues
-            .nodes;
+        let data = response.data.ok_or(GraphqlError::NotFound)?.issues.nodes;
         Ok(data)
     }
 
@@ -314,6 +314,12 @@ pub struct IssueLabel {
     pub color: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct IssueListParams {
+    pub first: usize,
+    pub filter: Option<Value>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct GraphqlResponseError {
     pub message: String,
@@ -399,7 +405,13 @@ mod tests {
         )
         .unwrap();
 
-        let issues = client.list_issues(5).await.unwrap();
+        let issues = client
+            .list_issues(IssueListParams {
+                first: 5,
+                filter: None,
+            })
+            .await
+            .unwrap();
         mock.assert();
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].identifier, "ENG-1");

@@ -1,5 +1,6 @@
 mod client;
 
 pub use client::{
-    GraphqlError, GraphqlResult, IssueDetail, IssueSummary, LinearGraphqlClient, Viewer,
+    GraphqlError, GraphqlResult, IssueDetail, IssueListParams, IssueSummary, LinearGraphqlClient,
+    Viewer,
 };

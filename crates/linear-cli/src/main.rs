@@ -7,6 +7,7 @@ use linear_core::auth::{
     OAuthConfig,
 };
 use linear_core::graphql::{IssueDetail, IssueSummary, LinearGraphqlClient, Viewer};
+use linear_core::services::issues::{IssueQueryOptions, IssueService};
 use tokio::task;
 use url::Url;
 
@@ -73,6 +74,18 @@ struct IssueListArgs {
     /// Maximum number of issues to return
     #[arg(long, default_value_t = 20)]
     limit: usize,
+    /// Filter by team key (e.g. ENG)
+    #[arg(long = "team-key")]
+    team_key: Option<String>,
+    /// Filter by state id
+    #[arg(long = "state-id")]
+    state_id: Option<String>,
+    /// Filter by assignee id
+    #[arg(long = "assignee-id")]
+    assignee_id: Option<String>,
+    /// Filter by label ids (repeatable)
+    #[arg(long = "label-id")]
+    label_ids: Vec<String>,
     /// Output raw JSON
     #[arg(long)]
     json: bool,
@@ -358,10 +371,18 @@ fn render_viewer(viewer: &Viewer) {
 
 async fn issue_list(args: IssueListArgs) -> Result<()> {
     let session = load_session(&args.profile).await?;
-    let client = LinearGraphqlClient::from_session(&session)
-        .context("failed to build GraphQL client")?;
-    let issues = client
-        .list_issues(args.limit)
+    let client =
+        LinearGraphqlClient::from_session(&session).context("failed to build GraphQL client")?;
+    let service = IssueService::new(client);
+    let options = IssueQueryOptions {
+        limit: args.limit,
+        team_key: args.team_key.clone(),
+        assignee_id: args.assignee_id.clone(),
+        state_id: args.state_id.clone(),
+        label_ids: args.label_ids.clone(),
+    };
+    let issues = service
+        .list(options)
         .await
         .context("GraphQL request failed")?;
 
@@ -376,10 +397,11 @@ async fn issue_list(args: IssueListArgs) -> Result<()> {
 
 async fn issue_view(args: IssueViewArgs) -> Result<()> {
     let session = load_session(&args.profile).await?;
-    let client = LinearGraphqlClient::from_session(&session)
-        .context("failed to build GraphQL client")?;
-    let issue = client
-        .issue_by_key(&args.key)
+    let client =
+        LinearGraphqlClient::from_session(&session).context("failed to build GraphQL client")?;
+    let service = IssueService::new(client);
+    let issue = service
+        .get_by_key(&args.key)
         .await
         .context("GraphQL request failed")?;
 
@@ -399,11 +421,7 @@ fn render_issue_list(issues: &[IssueSummary]) {
     );
     println!("{}", "-".repeat(100));
     for issue in issues {
-        let state = issue
-            .state
-            .as_ref()
-            .map(|s| s.name.as_str())
-            .unwrap_or("-");
+        let state = issue.state.as_ref().map(|s| s.name.as_str()).unwrap_or("-");
         let assignee = issue
             .assignee
             .as_ref()
@@ -453,8 +471,11 @@ fn render_issue_detail(issue: &IssueDetail) {
 
     if let Some(description) = &issue.description {
         if !description.trim().is_empty() {
-            println!("\n{}
-", description.trim());
+            println!(
+                "\n{}
+",
+                description.trim()
+            );
         }
     }
 }
