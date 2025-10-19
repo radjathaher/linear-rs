@@ -11,9 +11,10 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Style};
 use ratatui::text::Line;
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, ListState};
 use ratatui::{Frame, Terminal};
 use tokio::runtime::Runtime;
+use tokio::task::JoinHandle;
 
 const DEFAULT_PROFILE: &str = "default";
 
@@ -65,6 +66,30 @@ async fn run_app<B: ratatui::backend::Backend>(
                 _ => {}
             }
         }
+
+        if let Some(handle) = app.pending_detail.as_mut() {
+            if handle.is_finished() {
+                let handle = app.pending_detail.take().unwrap();
+                match handle.await {
+                    Ok(Ok(Some(detail))) => {
+                        app.status = format!("Loaded {}", detail.identifier);
+                        app.detail = Some(detail);
+                    }
+                    Ok(Ok(None)) => {
+                        app.status = "Issue detail unavailable".into();
+                        app.detail = None;
+                    }
+                    Ok(Err(err)) => {
+                        app.status = format!("Error loading detail: {err}");
+                        app.detail = None;
+                    }
+                    Err(err) => {
+                        app.status = format!("Task error loading detail: {err}");
+                        app.detail = None;
+                    }
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -74,6 +99,9 @@ struct App {
     detail: Option<linear_core::graphql::IssueDetail>,
     status: String,
     selected: usize,
+    pending_detail: Option<
+        JoinHandle<Result<Option<linear_core::graphql::IssueDetail>>>,
+    >,
 }
 
 impl App {
@@ -83,6 +111,7 @@ impl App {
             detail: None,
             status: "Press 'r' to refresh, arrows to navigate, 'q' to quit".into(),
             selected: 0,
+            pending_detail: None,
         }
     }
 
@@ -92,12 +121,20 @@ impl App {
                 self.issues = issues;
                 self.detail = detail;
                 self.selected = 0;
-                self.status = "Loaded issues".into();
+                self.pending_detail = None;
+                if self.detail.is_none() && !self.issues.is_empty() {
+                    let first_key = self.issues[0].identifier.clone();
+                    self.queue_detail_fetch(first_key);
+                    self.status = "Loading first issue...".into();
+                } else {
+                    self.status = "Loaded issues".into();
+                }
             }
             Err(err) => {
                 self.issues.clear();
                 self.detail = None;
                 self.selected = 0;
+                self.pending_detail = None;
                 self.status = format!("Error: {err}");
             }
         }
@@ -112,18 +149,16 @@ impl App {
         if new_index != self.selected {
             self.selected = new_index;
             if let Some(issue) = self.issues.get(self.selected) {
-                match fetch_issue_detail(&issue.identifier).await {
-                    Ok(detail) => {
-                        self.detail = detail;
-                        self.status = format!("Selected {}", issue.identifier);
-                    }
-                    Err(err) => {
-                        self.detail = None;
-                        self.status = format!("Error loading detail: {err}");
-                    }
-                }
+                self.detail = None;
+                self.pending_detail = None;
+                self.status = format!("Loading {}...", issue.identifier);
+                self.queue_detail_fetch(issue.identifier.clone());
             }
         }
+    }
+
+    fn queue_detail_fetch(&mut self, key: String) {
+        self.pending_detail = Some(tokio::spawn(fetch_issue_detail(key)));
     }
 }
 
@@ -148,7 +183,7 @@ async fn fetch_issue_summaries() -> Result<(
         .context("failed to fetch issues")?;
 
     let detail = if let Some(first) = issues.get(0) {
-        fetch_issue_detail(&first.identifier).await?
+        fetch_issue_detail(first.identifier.clone()).await?
     } else {
         None
     };
@@ -156,12 +191,12 @@ async fn fetch_issue_summaries() -> Result<(
     Ok((issues, detail))
 }
 
-async fn fetch_issue_detail(key: &str) -> Result<Option<linear_core::graphql::IssueDetail>> {
+async fn fetch_issue_detail(key: String) -> Result<Option<linear_core::graphql::IssueDetail>> {
     let session = load_session(DEFAULT_PROFILE).await?;
     let client =
         LinearGraphqlClient::from_session(&session).context("failed to build GraphQL client")?;
     let service = IssueService::new(client);
-    Ok(service.get_by_key(key).await.ok())
+    Ok(service.get_by_key(&key).await.ok())
 }
 
 async fn load_session(profile: &str) -> Result<linear_core::auth::AuthSession> {

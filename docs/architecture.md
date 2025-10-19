@@ -51,7 +51,7 @@ linear-rs/
   - Bottom command palette for quick actions (`:` to open, `?` for help).
 - Async runtime (Tokio) plus `tokio::sync::mpsc` channel to integrate network calls without blocking the draw loop.
 - Shares state management primitives (e.g., `AppContext`) with CLI to ensure consistent caching and authorization behavior.
-- Initial scaffold fetches recent issues for the default profile using `IssueService` and renders them in a basic list with refresh (`r`) and quit (`q`) bindings.
+- Initial scaffold fetches recent issues for the default profile using `IssueService`, renders them in a selectable list with keyboard navigation (`j/k`, arrows), shows a detail pane, and supports refresh (`r`) and quit (`q`).
 
 ## Authentication Strategy
 1. **Browser-based Authorization Code + PKCE (default)**  
