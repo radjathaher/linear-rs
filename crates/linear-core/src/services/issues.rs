@@ -158,6 +158,7 @@ pub struct IssueQueryOptions {
     pub team_key: Option<String>,
     pub assignee_id: Option<String>,
     pub state_id: Option<String>,
+    pub project_id: Option<String>,
     pub label_ids: Vec<String>,
     pub title_contains: Option<String>,
     pub after: Option<String>,
@@ -217,6 +218,10 @@ impl IssueQueryOptions {
 
         if let Some(assignee_id) = self.assignee_id {
             filter.insert("assignee".into(), json!({ "id": { "eq": assignee_id } }));
+        }
+
+        if let Some(project_id) = self.project_id {
+            filter.insert("project".into(), json!({ "id": { "eq": project_id } }));
         }
 
         if !self.label_ids.is_empty() {
@@ -280,6 +285,7 @@ mod tests {
             assignee_id: Some("user-1".into()),
             state_id: Some("state-1".into()),
             label_ids: vec!["label-1".into(), "label-2".into()],
+            project_id: Some("proj-1".into()),
             title_contains: Some("bug".into()),
             after: Some("cursor".into()),
             ..Default::default()
@@ -290,6 +296,7 @@ mod tests {
         let filter = params.filter.expect("filter present");
         assert_eq!(filter["team"]["key"]["eq"], "ENG");
         assert_eq!(filter["assignee"]["id"]["eq"], "user-1");
+        assert_eq!(filter["project"]["id"]["eq"], "proj-1");
         assert_eq!(filter["labels"]["id"]["in"].as_array().unwrap().len(), 2);
         assert_eq!(filter["title"]["contains"], "bug");
         assert_eq!(params.after.as_deref(), Some("cursor"));
