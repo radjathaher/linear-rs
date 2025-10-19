@@ -63,7 +63,7 @@ linear
 | Command | GraphQL operation | Response |
 | --- | --- | --- |
 | `issue list` | `issues(first, filter, after)` | Paginated issue summaries + `pageInfo` |
-| `issue view` | `issue(id)` | Full issue detail (state, assignee, labels, team, timestamps) |
+| `issue view` | `issue(id)` | Full issue detail including state, assignee, labels, team, timestamps, latest comments, change history, and sub-issue tree |
 | `issue create` | `issueCreate(input)` | Created issue detail or user errors |
 | `issue update` | `issueUpdate(id, input)` | Updated issue detail |
 | `issue close` | `issueArchive(id, archive)` | Archived/restored issue detail |
@@ -93,13 +93,16 @@ Navigation  j/k or arrows move selection        Refresh     r reload issues
 Focus       tab cycles issues→teams→states      Filters     / contains filter
 Paging      ] next page  [ previous             Teams       t cycle team filter
 States      s cycle state filter                Jump        view next/prev/first/last/<key>
-Palette     : command mode                      Help        ? toggle overlay / Esc to close
+Detail      . next tab   , previous tab        Activity    palette: activity
+Palette     : command mode                      Sub-issues palette: sub-issues
 Projects    p fetch + overlay of recent projects
 Cycles      y fetch + overlay of cycles for selected team
-Misc        c clear filters   q/Esc quit
+Misc        c clear filters   q/Esc quit        Help        ? toggle overlay / Esc to close
 ```
 
 Projects and cycles overlays can be opened with `p` and `y`. Each overlay fetches the latest ten items and can be dismissed with the same key or `Esc`.
+
+Detail tabs include Summary, Description, Activity (comments + history timeline), and Sub-issues (nested tree). Tab selection is remembered per issue; `detail <tab>` commands remain available alongside the shorthand palette entries `activity` and `sub-issues`.
 
 ## Unimplemented Resources
 
