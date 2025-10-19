@@ -79,6 +79,27 @@ impl IssueService {
             .find(|state| state.id == identifier || state.name.eq_ignore_ascii_case(identifier))
             .map(|state| state.id))
     }
+
+    pub async fn workflow_states_for_team(
+        &self,
+        team_identifier: &str,
+    ) -> GraphqlResult<Option<(TeamSummary, Vec<WorkflowStateSummary>)>> {
+        let teams = self.teams().await?;
+        if let Some(team) = teams.into_iter().find(|team| {
+            team.id == team_identifier
+                || team.key.eq_ignore_ascii_case(team_identifier)
+                || team
+                    .slug_id
+                    .as_ref()
+                    .map(|slug| slug.eq_ignore_ascii_case(team_identifier))
+                    .unwrap_or(false)
+        }) {
+            let states = self.workflow_states(&team.id).await?;
+            Ok(Some((team, states)))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 /// Options used to constrain issue queries.

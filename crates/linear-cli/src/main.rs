@@ -6,8 +6,11 @@ use linear_core::auth::{
     AuthFlow, AuthManager, CredentialStore, FileCredentialStore, FlowPreference, OAuthClient,
     OAuthConfig,
 };
-use linear_core::graphql::{IssueDetail, IssueSummary, LinearGraphqlClient, Viewer};
+use linear_core::graphql::{
+    IssueDetail, IssueSummary, LinearGraphqlClient, TeamSummary, Viewer, WorkflowStateSummary,
+};
 use linear_core::services::issues::{IssueQueryOptions, IssueService};
+use serde_json::json;
 use tokio::task;
 use url::Url;
 
@@ -32,6 +35,12 @@ enum Commands {
     /// Issue operations
     #[command(subcommand)]
     Issue(IssueCommand),
+    /// Team metadata
+    #[command(subcommand)]
+    Team(TeamCommand),
+    /// Workflow state metadata
+    #[command(subcommand)]
+    State(StateCommand),
 }
 
 #[derive(Subcommand, Debug)]
@@ -64,6 +73,18 @@ enum IssueCommand {
     List(IssueListArgs),
     /// View a single issue by key (e.g. ENG-123)
     View(IssueViewArgs),
+}
+
+#[derive(Subcommand, Debug)]
+enum TeamCommand {
+    /// List all accessible teams
+    List(TeamListArgs),
+}
+
+#[derive(Subcommand, Debug)]
+enum StateCommand {
+    /// List workflow states for a team
+    List(StateListArgs),
 }
 
 #[derive(Args, Debug)]
@@ -107,6 +128,29 @@ struct IssueViewArgs {
     /// Profile name for stored credentials
     #[arg(long, default_value = DEFAULT_PROFILE)]
     profile: String,
+    /// Output raw JSON
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Args, Debug)]
+struct TeamListArgs {
+    /// Profile name for stored credentials
+    #[arg(long, default_value = DEFAULT_PROFILE)]
+    profile: String,
+    /// Output raw JSON
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Args, Debug)]
+struct StateListArgs {
+    /// Profile name for stored credentials
+    #[arg(long, default_value = DEFAULT_PROFILE)]
+    profile: String,
+    /// Team identifier (key, slug, or id)
+    #[arg(long = "team")]
+    team: String,
     /// Output raw JSON
     #[arg(long)]
     json: bool,
@@ -158,6 +202,12 @@ async fn main() -> Result<()> {
         Commands::Issue(cmd) => match cmd {
             IssueCommand::List(args) => issue_list(args).await?,
             IssueCommand::View(args) => issue_view(args).await?,
+        },
+        Commands::Team(cmd) => match cmd {
+            TeamCommand::List(args) => team_list(args).await?,
+        },
+        Commands::State(cmd) => match cmd {
+            StateCommand::List(args) => state_list(args).await?,
         },
     }
     Ok(())
@@ -452,6 +502,49 @@ async fn issue_view(args: IssueViewArgs) -> Result<()> {
     Ok(())
 }
 
+async fn team_list(args: TeamListArgs) -> Result<()> {
+    let session = load_session(&args.profile).await?;
+    let client =
+        LinearGraphqlClient::from_session(&session).context("failed to build GraphQL client")?;
+    let service = IssueService::new(client);
+    let teams = service.teams().await.context("GraphQL request failed")?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&teams)?);
+    } else {
+        render_team_list(&teams);
+    }
+
+    Ok(())
+}
+
+async fn state_list(args: StateListArgs) -> Result<()> {
+    let session = load_session(&args.profile).await?;
+    let client =
+        LinearGraphqlClient::from_session(&session).context("failed to build GraphQL client")?;
+    let service = IssueService::new(client);
+    let result = service
+        .workflow_states_for_team(&args.team)
+        .await?
+        .ok_or_else(|| anyhow!("team '{}' not found", args.team))?;
+    let (team, states) = result;
+
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "team": team,
+                "states": states,
+            }))?
+        );
+    } else {
+        println!("Team: {} ({})", team.name, team.key);
+        render_state_list(&states);
+    }
+
+    Ok(())
+}
+
 fn render_issue_list(issues: &[IssueSummary]) {
     println!(
         "{:<12} {:<40} {:<16} {:<20} {:<8}",
@@ -532,5 +625,32 @@ fn truncate(value: &str, max_len: usize) -> String {
         collected
     } else {
         value.to_owned()
+    }
+}
+
+fn render_team_list(teams: &[TeamSummary]) {
+    println!("{:<8} {:<25} {:<25} {:<36}", "KEY", "NAME", "SLUG", "ID");
+    println!("{}", "-".repeat(96));
+    for team in teams {
+        println!(
+            "{:<8} {:<25} {:<25} {:<36}",
+            team.key,
+            truncate(&team.name, 25),
+            truncate(team.slug_id.as_deref().unwrap_or("-"), 25),
+            truncate(&team.id, 36)
+        );
+    }
+}
+
+fn render_state_list(states: &[WorkflowStateSummary]) {
+    println!("{:<25} {:<15} {:<36}", "NAME", "TYPE", "ID");
+    println!("{}", "-".repeat(80));
+    for state in states {
+        println!(
+            "{:<25} {:<15} {:<36}",
+            truncate(&state.name, 25),
+            truncate(state.type_name.as_deref().unwrap_or("-"), 15),
+            truncate(&state.id, 36)
+        );
     }
 }
