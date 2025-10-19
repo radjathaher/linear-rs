@@ -363,6 +363,44 @@ impl App {
             false
         }
     }
+
+    fn jump_relative(&mut self, delta: isize) -> bool {
+        if self.issues.is_empty() {
+            return false;
+        }
+        let len = self.issues.len() as isize;
+        let mut index = self.selected as isize + delta;
+        index = index.clamp(0, len - 1);
+        let new_index = index as usize;
+        if new_index == self.selected {
+            return false;
+        }
+        self.select_issue(new_index);
+        true
+    }
+
+    fn jump_first(&mut self) -> bool {
+        if self.issues.is_empty() {
+            return false;
+        }
+        if self.selected == 0 {
+            return false;
+        }
+        self.select_issue(0);
+        true
+    }
+
+    fn jump_last(&mut self) -> bool {
+        if self.issues.is_empty() {
+            return false;
+        }
+        let last = self.issues.len() - 1;
+        if self.selected == last {
+            return false;
+        }
+        self.select_issue(last);
+        true
+    }
     async fn clear_all_filters(&mut self) {
         self.team_index = None;
         self.state_index = None;
@@ -546,6 +584,19 @@ impl App {
                     Line::from("contains clear"),
                 ]
             }
+        } else if let Some(rest) = input.strip_prefix("view ") {
+            let term = rest.trim();
+            if term.is_empty() {
+                vec![
+                    Line::from("view <issue-key>"),
+                    Line::from("view next"),
+                    Line::from("view prev"),
+                    Line::from("view first"),
+                    Line::from("view last"),
+                ]
+            } else {
+                vec![Line::from(format!("view {}", term))]
+            }
         } else {
             vec![
                 Line::from("team <key>"),
@@ -553,6 +604,10 @@ impl App {
                 Line::from("contains <text>"),
                 Line::from("contains clear"),
                 Line::from("view <issue-key>"),
+                Line::from("view next"),
+                Line::from("view prev"),
+                Line::from("view first"),
+                Line::from("view last"),
                 Line::from("clear"),
                 Line::from("reload"),
                 Line::from("help"),
@@ -676,6 +731,42 @@ impl App {
                 self.load_issues_with_contains(Some(term.to_string())).await;
             }
             return;
+        }
+
+        match cmd {
+            "view next" => {
+                if self.jump_relative(1) {
+                    self.set_status("Jumped to next issue", false);
+                } else {
+                    self.set_status("Already at last issue", false);
+                }
+                return;
+            }
+            "view prev" | "view previous" => {
+                if self.jump_relative(-1) {
+                    self.set_status("Jumped to previous issue", false);
+                } else {
+                    self.set_status("Already at first issue", false);
+                }
+                return;
+            }
+            "view first" => {
+                if self.jump_first() {
+                    self.set_status("Jumped to first issue", false);
+                } else {
+                    self.set_status("Already at first issue", false);
+                }
+                return;
+            }
+            "view last" => {
+                if self.jump_last() {
+                    self.set_status("Jumped to last issue", false);
+                } else {
+                    self.set_status("Already at last issue", false);
+                }
+                return;
+            }
+            _ => {}
         }
 
         if let Some(key) = cmd.strip_prefix("view ") {
@@ -893,7 +984,7 @@ fn render_app(frame: &mut Frame, app: &App) {
         .split(right_chunks[4]);
 
     let help = Paragraph::new(
-        "Commands: r=refresh  c=clear filters  tab=focus  j/k=move  t=team  s=state  /=contains  reload  :team/:state/:contains  q=quit",
+        "Commands: r=refresh  c=clear filters  tab=focus  j/k=move  t=team  s=state  /=contains  view next/prev/<key>  reload  :team/:state/:contains  q=quit",
     )
     .style(Style::default());
     frame.render_widget(help, help_chunks[0]);
@@ -955,6 +1046,7 @@ fn render_app(frame: &mut Frame, app: &App) {
             Line::from("Actions:"),
             Line::from("  r refreshes issues   c clears filters   q exits"),
             Line::from("  t / s cycle team or state filters"),
+            Line::from("  view next/prev/first/last/<key> jumps to an issue"),
             Line::from("Filters:"),
             Line::from("  / opens contains filter  :team/:state/:contains"),
             Line::from("  clear resets filters  contains clear drops title filter"),
