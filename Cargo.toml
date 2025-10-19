@@ -2,7 +2,6 @@
 members = [
     "crates/linear-core",
     "crates/linear",
-    "crates/linear-tui",
 ]
 resolver = "2"
 

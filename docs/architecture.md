@@ -13,8 +13,7 @@ linear-rs/
 ├── docs/                # design docs, specs
 ├── crates/
 │   ├── linear-core/     # shared library crate (auth, GraphQL, domain)
-│   ├── linear/          # CLI binary crate (clap-based)
-│   └── linear-tui/      # Ratatui application
+│   └── linear/          # CLI + TUI binary crate (clap-based, Ratatui subcommand)
 ```
 
 ### `linear-core`
@@ -28,15 +27,16 @@ linear-rs/
 - **Event pipeline** – Optional module for webhook ingestion or polling diffs to keep local caches in sync.
 
 ### `linear`
-- Depends on `clap` derive for command tree (`linear auth login`, `linear auth logout`, `linear issue list`, `linear issue view <issue-key>`, `linear issue create`, `linear project list`, `linear cycle list`, `linear sync`).
+- Depends on `clap` derive for command tree (`linear auth login`, `linear auth logout`, `linear issue list`, `linear issue view <issue-key>`, `linear issue create`, `linear project list`, `linear cycle list`, `linear sync`, `linear tui`).
 - `linear auth login` supports browser (`--browser`), manual (`--manual`), API key (`--api-key`), and client-credentials (`--client-credentials --scope`) modes with environment-driven defaults (`LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET`, `LINEAR_REDIRECT_URI`, optional `LINEAR_SCOPES`).
 - `linear user me` surfaces the authenticated account via the GraphQL `viewer` query; `linear issue list/view` consume the shared GraphQL services for recent issues and detailed inspection, including friendly filters (`--team`, `--state`, `--assignee-id`, `--label-id`) that resolve human inputs to IDs.
 - Issue detail output strips Markdown via `pulldown-cmark` and wraps long descriptions for terminal readability, keeping metadata aligned.
 - `linear user me` surfaces the authenticated account via the GraphQL `viewer` query; `linear issue list/view` consume the shared GraphQL services for recent issues and detailed inspection, including friendly filters (`--team`, `--state`, `--assignee-id`, `--label-id`) that resolve human inputs to IDs. Metadata helpers (`linear team list`, `linear state list --team ...`) expose cached lookups for TUI/CLI reuse.
 - Uses `linear-core` services; formatting handled with `owo-colors` or `colored`; supports JSON/YAML output for scripting.
 - Implements interactive selection helpers (e.g., `fzf`-style search using `skimmer` when terminal supports raw mode).
+- `tui` subcommand (migrated from standalone crate October 19, 2025) launches the Ratatui experience described below without requiring a separate binary.
 
-### `linear-tui`
+### TUI module (within `linear`)
 - Built on `ratatui` with `crossterm` backend; optional `ratatui-tree`/`ratatui-logger` widgets for navigation and diagnostics.
 - Screen layout:
   - Left column: team and view filters.

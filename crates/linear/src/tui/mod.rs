@@ -2,10 +2,9 @@ use std::collections::HashMap;
 use std::io;
 use std::time::Duration;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-use linear_core::auth::{AuthManager, FileCredentialStore, OAuthClient, OAuthConfig};
 use linear_core::graphql::{LinearGraphqlClient, TeamSummary, WorkflowStateSummary};
 use linear_core::services::issues::{IssueListResult, IssueQueryOptions, IssueService};
 use ratatui::backend::CrosstermBackend;
@@ -15,20 +14,13 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
 use ratatui::{Frame, Terminal};
 use textwrap::wrap;
-use tokio::runtime::Runtime;
 use tokio::task::JoinHandle;
 
-const DEFAULT_PROFILE: &str = "default";
 const SPINNER_FRAMES: [char; 4] = ['-', '\\', '|', '/'];
 const PAGE_SIZE: usize = 20;
 
-fn main() -> Result<()> {
-    let runtime = Runtime::new()?;
-    runtime.block_on(async_main())
-}
-
-async fn async_main() -> Result<()> {
-    let session = load_session(DEFAULT_PROFILE).await?;
+pub async fn run(profile: &str) -> Result<()> {
+    let session = crate::load_session(profile).await?;
     let service = IssueService::new(
         LinearGraphqlClient::from_session(&session).context("failed to build GraphQL client")?,
     );
@@ -1181,35 +1173,6 @@ impl From<IssueListResult> for PageData {
             has_next_page: result.has_next_page,
         }
     }
-}
-
-async fn load_session(profile: &str) -> Result<linear_core::auth::AuthSession> {
-    let store = FileCredentialStore::with_default_locator()
-        .context("unable to initialise credential store")?;
-    let oauth_config = build_oauth_config()?;
-    let oauth = OAuthClient::new(oauth_config).context("failed to build OAuth client")?;
-    let manager = AuthManager::new(store, oauth, profile);
-    manager.ensure_fresh_session().await?.ok_or_else(|| {
-        anyhow!(
-            "no credentials stored for profile '{}'; run `linear auth login`",
-            profile
-        )
-    })
-}
-
-fn build_oauth_config() -> Result<OAuthConfig> {
-    let client_id = std::env::var("LINEAR_CLIENT_ID")
-        .context("LINEAR_CLIENT_ID environment variable is required for the TUI")?;
-    let redirect = std::env::var("LINEAR_REDIRECT_URI")
-        .context("LINEAR_REDIRECT_URI environment variable is required for the TUI")?;
-    let redirect_uri = redirect.parse()?;
-    let mut config = OAuthConfig::new(client_id, redirect_uri);
-    if let Ok(secret) = std::env::var("LINEAR_CLIENT_SECRET") {
-        if !secret.is_empty() {
-            config = config.with_secret(secret);
-        }
-    }
-    Ok(config)
 }
 
 fn render_app(frame: &mut Frame, app: &App) {

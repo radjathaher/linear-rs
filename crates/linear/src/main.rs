@@ -1,5 +1,7 @@
 use std::env;
 
+mod tui;
+
 use anyhow::{anyhow, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use linear_core::auth::{
@@ -43,6 +45,8 @@ enum Commands {
     /// Workflow state metadata
     #[command(subcommand)]
     State(StateCommand),
+    /// Launch interactive TUI
+    Tui(TuiArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -178,6 +182,13 @@ struct IssueCreateArgs {
 }
 
 #[derive(Args, Debug)]
+struct TuiArgs {
+    /// Profile name for stored credentials
+    #[arg(long, default_value = DEFAULT_PROFILE)]
+    profile: String,
+}
+
+#[derive(Args, Debug)]
 struct TeamListArgs {
     /// Profile name for stored credentials
     #[arg(long, default_value = DEFAULT_PROFILE)]
@@ -254,6 +265,7 @@ async fn main() -> Result<()> {
         Commands::State(cmd) => match cmd {
             StateCommand::List(args) => state_list(args).await?,
         },
+        Commands::Tui(args) => tui::run(&args.profile).await?,
     }
     Ok(())
 }
@@ -429,7 +441,7 @@ async fn user_me(args: MeArgs) -> Result<()> {
     Ok(())
 }
 
-async fn load_session(profile: &str) -> Result<linear_core::auth::AuthSession> {
+pub(crate) async fn load_session(profile: &str) -> Result<linear_core::auth::AuthSession> {
     let store = FileCredentialStore::with_default_locator()
         .context("unable to initialise credential store")?;
 

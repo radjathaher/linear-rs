@@ -8,19 +8,20 @@ Rust workspace providing a CLI and TUI for Linear project management.
 
 ## CLI Usage
 ```
-cargo run -p linear-cli -- auth login --browser
-cargo run -p linear-cli -- issue list --team KEY --state-id STATE_ID
-cargo run -p linear-cli -- issue create --team KEY --title "New issue" --description "Details"
+cargo run -p linear -- auth login --browser
+cargo run -p linear -- issue list --team KEY --state-id STATE_ID
+cargo run -p linear -- issue create --team KEY --title "New issue" --description "Details"
 ```
 Key commands:
 - `linear auth login` – OAuth login with browser/manual/API key options
 - `linear issue list` – filter with `--team`, `--state`, `--assignee-id`, `--label-id`, `--contains`
 - `linear issue create` – create an issue with optional `--description`, `--state`, `--assignee-id`, `--label-id`, `--priority`
 - `linear team list`, `linear state list --team KEY`
+- `linear tui` – launches the interactive interface without a separate binary
 
 ## TUI Usage
 ```
-cargo run -p linear-tui
+cargo run -p linear -- tui
 ```
 Keys:
 - `r` refresh, `q` quit
