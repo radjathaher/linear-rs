@@ -4,7 +4,7 @@ use chrono::Duration;
 use tokio::sync::Mutex;
 use url::Url;
 
-use super::browser::run_loopback_flow;
+use super::browser::{run_loopback_flow, run_loopback_flow_auto_port};
 use super::manual::run_manual_flow;
 use super::{AuthError, AuthSession, CredentialStore, OAuthClient, TokenType};
 
@@ -62,6 +62,21 @@ where
         F: Fn(&Url) -> Result<(), AuthError>,
     {
         let session = run_loopback_flow(&self.oauth, open_browser, notify).await?;
+        self.persist(session.clone()).await?;
+        Ok(session)
+    }
+
+    pub async fn authenticate_browser_auto_port<F, I>(
+        &self,
+        open_browser: bool,
+        notify: F,
+        ports: I,
+    ) -> Result<AuthSession, AuthError>
+    where
+        F: Fn(&Url) -> Result<(), AuthError>,
+        I: IntoIterator<Item = u16>,
+    {
+        let session = run_loopback_flow_auto_port(&self.oauth, open_browser, ports, notify).await?;
         self.persist(session.clone()).await?;
         Ok(session)
     }

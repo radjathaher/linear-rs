@@ -5,8 +5,8 @@ mod tui;
 use anyhow::{anyhow, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use linear_core::auth::{
-    AuthFlow, AuthManager, CredentialStore, FileCredentialStore, FlowPreference, OAuthClient,
-    OAuthConfig,
+    default_redirect_ports, AuthError, AuthManager, CredentialStore, FileCredentialStore,
+    OAuthClient, OAuthConfig,
 };
 use linear_core::graphql::{
     IssueDetail, IssueSummary, LinearGraphqlClient, TeamSummary, Viewer, WorkflowStateSummary,
@@ -19,7 +19,6 @@ use tokio::task;
 use url::Url;
 
 const DEFAULT_PROFILE: &str = "default";
-const DEFAULT_SCOPES: &[&str] = &["read", "write"];
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Linear terminal CLI")]
@@ -213,27 +212,12 @@ struct StateListArgs {
 
 #[derive(Args, Debug)]
 struct LoginArgs {
-    /// Profile name for stored credentials
-    #[arg(long, default_value = DEFAULT_PROFILE)]
-    profile: String,
-    /// Do not attempt to launch a browser automatically
-    #[arg(long)]
-    no_browser: bool,
-    /// Force the manual copy/paste flow
+    /// Authenticate with a personal API key instead of OAuth
+    #[arg(long = "api-key")]
+    api_key: Option<String>,
+    /// Use manual copy/paste flow instead of launching a browser
     #[arg(long)]
     manual: bool,
-    /// Force the browser loopback flow
-    #[arg(long)]
-    browser: bool,
-    /// Authenticate with a personal API key instead of OAuth
-    #[arg(long)]
-    api_key: Option<String>,
-    /// Authenticate using the client credentials grant (requires client secret)
-    #[arg(long = "client-credentials")]
-    client_credentials: bool,
-    /// Scopes requested when using client credentials
-    #[arg(long = "scope")]
-    scopes: Vec<String>,
 }
 
 #[derive(Args, Debug)]
@@ -274,82 +258,86 @@ async fn auth_login(args: LoginArgs) -> Result<()> {
     let store = FileCredentialStore::with_default_locator()
         .context("unable to initialise credential store")?;
 
-    let mut config = build_oauth_config()?;
-    config = config.with_scopes(DEFAULT_SCOPES.iter().copied());
-    let oauth = OAuthClient::new(config).context("failed to build OAuth client")?;
+    let oauth = OAuthClient::new(build_oauth_config()?).context("failed to build OAuth client")?;
 
-    let manager = AuthManager::new(store, oauth, &args.profile);
+    let manager = AuthManager::new(store, oauth, DEFAULT_PROFILE);
 
     if let Some(api_key) = args.api_key {
         manager
             .authenticate_api_key(api_key)
             .await
             .context("failed to store API key")?;
-        println!("Personal API key stored for profile '{}'.", args.profile);
+        println!("Personal API key stored for profile '{}'.", DEFAULT_PROFILE);
         return Ok(());
     }
 
-    if args.client_credentials {
-        ensure_client_secret_present()?;
-        let scopes = if args.scopes.is_empty() {
-            DEFAULT_SCOPES.iter().map(|s| s.to_string()).collect()
-        } else {
-            args.scopes.clone()
-        };
-        let session = manager
-            .authenticate_client_credentials(&scopes)
-            .await
-            .context("client credentials flow failed")?;
-        println!(
-            "Client credentials token stored for profile '{}' (scopes: {}).",
-            args.profile,
-            session.scope.join(", ")
-        );
-        return Ok(());
-    }
-
-    let open_browser = !args.no_browser;
-
-    let result = if args.manual {
+    let session = if args.manual {
         manager
-            .authenticate_manual(open_browser, print_authorization_url, || async {
+            .authenticate_manual(false, print_authorization_url, || async {
                 prompt_for_code().await
             })
             .await
-    } else if args.browser {
-        manager
-            .authenticate_browser(open_browser, print_authorization_url)
-            .await
     } else {
-        let preference = FlowPreference::detect();
-        let open = open_browser && preference.browser_available();
-        match preference.preferred() {
-            AuthFlow::Browser => {
+        match manager
+            .authenticate_browser_auto_port(true, print_authorization_url, default_redirect_ports())
+            .await
+        {
+            Ok(session) => Ok(session),
+            Err(AuthError::BrowserLaunch(reason)) => {
+                eprintln!(
+                    "Failed to launch browser ({reason}); falling back to manual copy/paste flow."
+                );
                 manager
-                    .authenticate_browser(open, print_authorization_url)
-                    .await
-            }
-            _ => {
-                manager
-                    .authenticate_manual(open_browser, print_authorization_url, || async {
+                    .authenticate_manual(false, print_authorization_url, || async {
                         prompt_for_code().await
                     })
                     .await
             }
+            Err(AuthError::NoAvailablePort) => {
+                eprintln!(
+                    "Unable to bind to a loopback port between 9000 and 9999; using manual copy/paste flow."
+                );
+                manager
+                    .authenticate_manual(false, print_authorization_url, || async {
+                        prompt_for_code().await
+                    })
+                    .await
+            }
+            Err(other) => Err(other),
+        }
+    }?;
+
+    let identity = match LinearGraphqlClient::from_session(&session) {
+        Ok(client) => match client.viewer().await {
+            Ok(viewer) => viewer
+                .email
+                .clone()
+                .or_else(|| viewer.display_name.clone())
+                .or_else(|| viewer.name.clone())
+                .unwrap_or(viewer.id.clone()),
+            Err(err) => {
+                eprintln!("Login succeeded but viewer query failed: {err}");
+                session.scope.join(", ")
+            }
+        },
+        Err(err) => {
+            eprintln!("Login succeeded but failed to build GraphQL client: {err}");
+            session.scope.join(", ")
         }
     };
 
-    match result {
-        Ok(session) => {
-            match session.expires_at {
-                Some(expiry) => println!("Login succeeded; token expires at {} (UTC).", expiry),
-                None => println!("Login succeeded; token stored."),
-            }
-            println!("Profile '{}': credentials saved.", args.profile);
-            Ok(())
-        }
-        Err(err) => Err(anyhow!("authentication failed: {err}")),
+    println!(
+        "Login succeeded. Credentials stored for profile '{}'.",
+        DEFAULT_PROFILE
+    );
+    if !identity.is_empty() {
+        println!("Logged in as {}", identity);
     }
+    if let Some(expiry) = session.expires_at {
+        println!("Token expires at {} (UTC).", expiry);
+    }
+
+    Ok(())
 }
 
 async fn auth_logout(args: LogoutArgs) -> Result<()> {
@@ -363,15 +351,22 @@ async fn auth_logout(args: LogoutArgs) -> Result<()> {
 }
 
 fn build_oauth_config() -> Result<OAuthConfig> {
-    let client_id = env::var("LINEAR_CLIENT_ID")
-        .context("LINEAR_CLIENT_ID environment variable is required")?;
-    let redirect = env::var("LINEAR_REDIRECT_URI")
-        .context("LINEAR_REDIRECT_URI environment variable is required")?;
-    let redirect_uri = Url::parse(&redirect).context("invalid LINEAR_REDIRECT_URI")?;
+    let mut config = OAuthConfig::with_defaults();
 
-    let mut config = OAuthConfig::new(client_id, redirect_uri);
+    if let Ok(client_id) = env::var("LINEAR_CLIENT_ID") {
+        if !client_id.trim().is_empty() {
+            config.client_id = client_id;
+        }
+    }
+
+    if let Ok(redirect) = env::var("LINEAR_REDIRECT_URI") {
+        if !redirect.trim().is_empty() {
+            config.redirect_uri = Url::parse(&redirect).context("invalid LINEAR_REDIRECT_URI")?;
+        }
+    }
+
     if let Ok(secret) = env::var("LINEAR_CLIENT_SECRET") {
-        if !secret.is_empty() {
+        if !secret.trim().is_empty() {
             config = config.with_secret(secret);
         }
     }
@@ -384,23 +379,10 @@ fn build_oauth_config() -> Result<OAuthConfig> {
             .collect::<Vec<_>>();
         if !requested.is_empty() {
             config = config.with_scopes(requested);
-        } else {
-            config = config.with_scopes(DEFAULT_SCOPES.iter().copied());
         }
-    } else {
-        config = config.with_scopes(DEFAULT_SCOPES.iter().copied());
     }
 
     Ok(config)
-}
-
-fn ensure_client_secret_present() -> Result<()> {
-    match env::var("LINEAR_CLIENT_SECRET") {
-        Ok(secret) if !secret.is_empty() => Ok(()),
-        _ => Err(anyhow!(
-            "client credentials flow requires LINEAR_CLIENT_SECRET to be set"
-        )),
-    }
 }
 
 async fn prompt_for_code() -> Result<String, linear_core::auth::AuthError> {
@@ -444,28 +426,14 @@ async fn user_me(args: MeArgs) -> Result<()> {
 pub(crate) async fn load_session(profile: &str) -> Result<linear_core::auth::AuthSession> {
     let store = FileCredentialStore::with_default_locator()
         .context("unable to initialise credential store")?;
-
-    match build_oauth_config() {
-        Ok(config) => {
-            let oauth = OAuthClient::new(config).context("failed to build OAuth client")?;
-            let manager = AuthManager::new(store, oauth, profile);
-            manager.ensure_fresh_session().await?.ok_or_else(|| {
-                anyhow!(
-                    "no credentials stored for profile '{}'; run `linear auth login`",
-                    profile
-                )
-            })
-        }
-        Err(_) => store
-            .load(profile)
-            .map_err(anyhow::Error::from)?
-            .ok_or_else(|| {
-                anyhow!(
-                    "no credentials stored for profile '{}'; run `linear auth login`",
-                    profile
-                )
-            }),
-    }
+    let oauth = OAuthClient::new(build_oauth_config()?).context("failed to build OAuth client")?;
+    let manager = AuthManager::new(store, oauth, profile);
+    manager.ensure_fresh_session().await?.ok_or_else(|| {
+        anyhow!(
+            "no credentials stored for profile '{}'; run `linear auth login`",
+            profile
+        )
+    })
 }
 
 fn render_viewer(viewer: &Viewer) {

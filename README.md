@@ -4,11 +4,11 @@ Rust workspace providing a CLI and TUI for Linear project management.
 
 ## Prerequisites
 - Rust 1.76+
-- Linear API credentials: set `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET` (optional for PKCE apps), and `LINEAR_REDIRECT_URI`
+- Optional: Linear API overrides via `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET`, `LINEAR_REDIRECT_URI`, or `LINEAR_SCOPES` if you need a custom OAuth app
 
 ## CLI Usage
 ```
-cargo run -p linear -- auth login --browser
+cargo run -p linear -- auth login
 cargo run -p linear -- issue list --team KEY --state-id STATE_ID
 cargo run -p linear -- issue create --team KEY --title "New issue" --description "Details"
 ```

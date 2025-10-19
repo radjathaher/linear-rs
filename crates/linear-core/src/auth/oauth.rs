@@ -1,3 +1,4 @@
+use std::ops::RangeInclusive;
 use std::time::Duration as StdDuration;
 
 use chrono::{DateTime, Duration, Utc};
@@ -6,6 +7,23 @@ use serde::Deserialize;
 use url::Url;
 
 use super::{AuthError, AuthSession, PkcePair, TokenType};
+
+pub const DEFAULT_CLIENT_ID: &str = "linear-rs-public";
+pub const DEFAULT_REDIRECT_HOST: &str = "127.0.0.1";
+pub const DEFAULT_REDIRECT_PATH: &str = "/callback";
+pub const DEFAULT_REDIRECT_PORT_START: u16 = 9000;
+pub const DEFAULT_REDIRECT_PORT_END: u16 = 9999;
+pub const DEFAULT_SCOPES: &[&str; 2] = &["read", "write"];
+
+pub fn default_redirect_ports() -> RangeInclusive<u16> {
+    DEFAULT_REDIRECT_PORT_START..=DEFAULT_REDIRECT_PORT_END
+}
+
+pub fn default_redirect_uri(port: u16) -> Result<Url, url::ParseError> {
+    Url::parse(&format!(
+        "http://{DEFAULT_REDIRECT_HOST}:{port}{DEFAULT_REDIRECT_PATH}"
+    ))
+}
 
 const DEFAULT_USER_AGENT: &str = "linear-rs/0.1.0";
 
@@ -26,6 +44,17 @@ impl OAuthConfig {
             redirect_uri,
             scopes: vec![],
         }
+    }
+
+    pub fn with_defaults() -> Self {
+        let redirect_uri =
+            default_redirect_uri(DEFAULT_REDIRECT_PORT_START).expect("valid redirect URI");
+        let mut config = Self::new(DEFAULT_CLIENT_ID, redirect_uri);
+        config.scopes = DEFAULT_SCOPES
+            .iter()
+            .map(|scope| scope.to_string())
+            .collect();
+        config
     }
 
     pub fn with_secret<S: Into<String>>(mut self, secret: S) -> Self {

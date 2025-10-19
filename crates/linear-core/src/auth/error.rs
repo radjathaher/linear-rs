@@ -38,4 +38,6 @@ pub enum AuthError {
     InvalidAuthorizationResponse(String),
     #[error("unsupported auth flow: {0}")]
     UnsupportedFlow(&'static str),
+    #[error("no available loopback port in the 9000-9999 range")]
+    NoAvailablePort,
 }

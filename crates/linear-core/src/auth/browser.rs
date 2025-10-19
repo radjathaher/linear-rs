@@ -3,6 +3,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::oneshot;
 use url::Url;
 
+use super::oauth::default_redirect_uri;
 use super::{utils, AuthError, AuthSession, OAuthClient, PkcePair};
 
 const SUCCESS_HTML: &str = r#"<html><body><h1>Authentication complete</h1><p>You may close this window and return to the terminal.</p></body></html>"#;
@@ -19,7 +20,58 @@ where
 {
     let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
     let port = listener.local_addr()?.port();
-    let redirect_uri = Url::parse(&format!("http://127.0.0.1:{port}/callback"))?;
+    let redirect_uri = default_redirect_uri(port)?;
+    run_loopback_with_listener(
+        client,
+        listener,
+        redirect_uri,
+        open_browser,
+        notify_authorization_url,
+    )
+    .await
+}
+
+/// Attempt the browser flow by binding to a fixed range of ports.
+pub async fn run_loopback_flow_auto_port<F, I>(
+    client: &OAuthClient,
+    open_browser: bool,
+    ports: I,
+    notify_authorization_url: F,
+) -> Result<AuthSession, AuthError>
+where
+    F: Fn(&Url) -> Result<(), AuthError>,
+    I: IntoIterator<Item = u16>,
+{
+    for port in ports {
+        match TcpListener::bind(("127.0.0.1", port)).await {
+            Ok(listener) => {
+                let redirect_uri = default_redirect_uri(port)?;
+                return run_loopback_with_listener(
+                    client,
+                    listener,
+                    redirect_uri,
+                    open_browser,
+                    |url| notify_authorization_url(url),
+                )
+                .await;
+            }
+            Err(_) => continue,
+        }
+    }
+
+    Err(AuthError::NoAvailablePort)
+}
+
+async fn run_loopback_with_listener<F>(
+    client: &OAuthClient,
+    listener: TcpListener,
+    redirect_uri: Url,
+    open_browser: bool,
+    notify_authorization_url: F,
+) -> Result<AuthSession, AuthError>
+where
+    F: Fn(&Url) -> Result<(), AuthError>,
+{
     let client = client.clone_with_redirect(redirect_uri.clone());
     let pkce = PkcePair::generate();
     let state = utils::random_state(32);

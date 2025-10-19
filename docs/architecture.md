@@ -17,8 +17,8 @@ linear-rs/
 ```
 
 ### `linear-core`
-- **Auth module** – Implements OAuth 2.0 Authorization Code flow with PKCE, including local loopback server capture and copy-paste fallback paths; manages refresh token rotation (enabled by default for apps created after 2025-10-01), and exposes personal API key and client-credential login helpers.citeturn1search0
-- `AuthManager` orchestrates flow selection, credential persistence, and refresh handling so front-ends only invoke high-level helpers (`authenticate_browser`, `authenticate_manual`, `authenticate_api_key`, `authenticate_client_credentials`).
+- **Auth module** – Implements OAuth 2.0 Authorization Code flow with PKCE, including local loopback server capture and copy-paste fallback paths; manages refresh token rotation (enabled by default for apps created after 2025-10-01), and exposes personal API key and client-credential login helpers. Embedded a public client identifier and loopback redirect search across ports 9000-9999 on October 19, 2025 so zero-config browser logins just work.citeturn1search0
+- `AuthManager` orchestrates flow selection, credential persistence, and refresh handling so front-ends only invoke high-level helpers (`authenticate_browser`, `authenticate_browser_auto_port`, `authenticate_manual`, `authenticate_api_key`, `authenticate_client_credentials`).
 - **Token store** – Persists encrypted credentials in `$XDG_CONFIG_HOME/linear-rs/credentials.json` (or platform-specific directories). Prefer `keyring` for secure storage when available; fall back to filesystem with `chmod 600`.
 - **GraphQL client** – Async wrapper around `reqwest` + `graphql_client` (or `cynic`) with request middleware for headers, retries, rate limiting, and structured error handling per GraphQL spec.citeturn2search0
 - **Domain layer** – Strongly-typed service objects (e.g., `IssuesService`, `ProjectsService`) that expose ergonomic operations and hide pagination/connection details. Supports actor-scoped mutations via `actor=user/app` flags.citeturn1search6
@@ -28,7 +28,7 @@ linear-rs/
 
 ### `linear`
 - Depends on `clap` derive for command tree (`linear auth login`, `linear auth logout`, `linear issue list`, `linear issue view <issue-key>`, `linear issue create`, `linear project list`, `linear cycle list`, `linear sync`, `linear tui`).
-- `linear auth login` supports browser (`--browser`), manual (`--manual`), API key (`--api-key`), and client-credentials (`--client-credentials --scope`) modes with environment-driven defaults (`LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET`, `LINEAR_REDIRECT_URI`, optional `LINEAR_SCOPES`).
+- `linear auth login` launches the browser automatically using embedded OAuth defaults, falls back to copy/paste when necessary, and still exposes `--manual` and `--api-key` switches for edge cases. Environment variables (`LINEAR_CLIENT_ID`, `LINEAR_REDIRECT_URI`, `LINEAR_CLIENT_SECRET`, `LINEAR_SCOPES`) optionally override the baked-in client if needed.
 - `linear user me` surfaces the authenticated account via the GraphQL `viewer` query; `linear issue list/view` consume the shared GraphQL services for recent issues and detailed inspection, including friendly filters (`--team`, `--state`, `--assignee-id`, `--label-id`) that resolve human inputs to IDs.
 - Issue detail output strips Markdown via `pulldown-cmark` and wraps long descriptions for terminal readability, keeping metadata aligned.
 - `linear user me` surfaces the authenticated account via the GraphQL `viewer` query; `linear issue list/view` consume the shared GraphQL services for recent issues and detailed inspection, including friendly filters (`--team`, `--state`, `--assignee-id`, `--label-id`) that resolve human inputs to IDs. Metadata helpers (`linear team list`, `linear state list --team ...`) expose cached lookups for TUI/CLI reuse.
@@ -56,19 +56,20 @@ linear-rs/
 
 ## Authentication Strategy
 1. **Browser-based Authorization Code + PKCE (default)**  
-   - CLI/TUI spins up a loopback HTTP listener on `127.0.0.1:<random>`; opens the system browser (respecting `$BROWSER`) to Linear's `/oauth/authorize`.  
+   - CLI/TUI now attempts ports `9000-9999` on `127.0.0.1`, updating the redirect URI dynamically before opening the system browser (respecting `$BROWSER`).  
    - On redirect, the local listener exchanges `code` + PKCE verifier for tokens via `https://api.linear.app/oauth/token`.citeturn1search0  
+   - If the browser cannot be launched (e.g., headless SSH) or every port is unavailable, the CLI automatically falls back to the manual copy/paste flow.  
    - Tokens stored alongside metadata; refresh tokens automatically rotated and refreshed when nearing expiration.
 
-2. **No-browser / remote flow**  
-   - Provide `--no-browser` flag: prints the authorization URL with PKCE challenge; user completes flow in any browser and pastes the resulting `code` parameter back into the CLI.  
-   - Document expected `invalid_grant` errors when the URL is opened multiple times; embed polling loop to confirm completion.
+2. **Manual / remote flow**  
+   - Exposed via `linear auth login --manual` or invoked automatically when browser launch/port binding fails.  
+   - Prints the authorization URL (with PKCE challenge) and prompts the user to paste either the returned code or the full redirect URL.
 
 3. **Personal API keys**  
    - Shortcut for individual use: prompt for API key, store with same credential pipeline, and apply `Authorization: <API_KEY>` header per request for backwards compatibility.citeturn2search0
 
 4. **Client credentials**  
-   - For service accounts or automation, expose `linear auth client-login --scope read,write`. Store expiry (30 days) and refresh by re-requesting token when HTTP 401 occurs.citeturn1search0
+   - Service account flow remains available in `AuthManager` but is not exposed via CLI in the zero-friction UX (deferred until post-MVP automation work).citeturn1search0
 
 > **Note:** Linear does not advertise an OAuth device authorization grant today; we rely on PKCE + browser hand-off or manual code entry for headless environments. Document this limitation prominently.citeturn1search0
 
