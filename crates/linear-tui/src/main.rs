@@ -112,6 +112,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                     KeyCode::Tab => app.toggle_focus(),
                     KeyCode::Char('t') => app.move_team_selection(1).await,
                     KeyCode::Char('s') => app.move_state_selection(1).await,
+                    KeyCode::Char('/') => app.enter_contains_palette(),
                     KeyCode::Char(':') => app.enter_palette(),
                     _ => {}
                 },
@@ -468,15 +469,19 @@ impl App {
         } else if let Some(rest) = input.strip_prefix("contains ") {
             let term = rest.trim();
             if term.is_empty() {
-                vec![Line::from("contains <text>")]
+                vec![Line::from("contains <text>"), Line::from("contains clear")]
             } else {
-                vec![Line::from(format!("contains {}", term))]
+                vec![
+                    Line::from(format!("contains {}", term)),
+                    Line::from("contains clear"),
+                ]
             }
         } else {
             vec![
                 Line::from("team <key>"),
                 Line::from("state <name>"),
                 Line::from("contains <text>"),
+                Line::from("contains clear"),
                 Line::from("clear"),
                 Line::from("reload"),
             ]
@@ -521,6 +526,16 @@ impl App {
         self.palette_input.clear();
         self.palette_history_index = None;
         self.set_status("Command mode (: to exit, ↑/↓ history)", false);
+    }
+
+    fn enter_contains_palette(&mut self) {
+        self.palette_active = true;
+        self.palette_history_index = None;
+        self.palette_input = match self.current_contains() {
+            Some(term) => format!("contains {}", term),
+            None => "contains ".into(),
+        };
+        self.set_status("Contains filter (Esc to cancel, Enter to apply)", false);
     }
 
     async fn execute_command(&mut self, command: String) {
@@ -769,7 +784,7 @@ fn render_app(frame: &mut Frame, app: &App) {
         .split(right_chunks[3]);
 
     let help = Paragraph::new(
-        "Commands: r=refresh  tab=focus  j/k=move  t=team  s=state  :team/:state/:contains  q=quit",
+        "Commands: r=refresh  tab=focus  j/k=move  t=team  s=state  /=contains  :team/:state/:contains  q=quit",
     )
     .style(Style::default());
     frame.render_widget(help, help_chunks[0]);
