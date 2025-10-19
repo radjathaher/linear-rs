@@ -58,6 +58,8 @@ async fn run_app<B: ratatui::backend::Backend>(
                 Event::Key(key) => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => break,
                     KeyCode::Char('r') => app.load_issues().await,
+                    KeyCode::Down | KeyCode::Char('j') => app.move_selection(1).await,
+                    KeyCode::Up | KeyCode::Char('k') => app.move_selection(-1).await,
                     _ => {}
                 },
                 _ => {}
@@ -68,33 +70,67 @@ async fn run_app<B: ratatui::backend::Backend>(
 }
 
 struct App {
-    issues: Vec<String>,
+    issues: Vec<linear_core::graphql::IssueSummary>,
+    detail: Option<linear_core::graphql::IssueDetail>,
     status: String,
+    selected: usize,
 }
 
 impl App {
     fn new() -> Self {
         Self {
             issues: Vec::new(),
-            status: "Press 'r' to refresh issues; 'q' to quit".into(),
+            detail: None,
+            status: "Press 'r' to refresh, arrows to navigate, 'q' to quit".into(),
+            selected: 0,
         }
     }
 
     async fn load_issues(&mut self) {
         match fetch_issue_summaries().await {
-            Ok(issues) => {
+            Ok((issues, detail)) => {
                 self.issues = issues;
+                self.detail = detail;
+                self.selected = 0;
                 self.status = "Loaded issues".into();
             }
             Err(err) => {
                 self.issues.clear();
+                self.detail = None;
+                self.selected = 0;
                 self.status = format!("Error: {err}");
+            }
+        }
+    }
+
+    async fn move_selection(&mut self, delta: isize) {
+        if self.issues.is_empty() {
+            return;
+        }
+        let len = self.issues.len();
+        let new_index = (self.selected as isize + delta).clamp(0, (len - 1) as isize) as usize;
+        if new_index != self.selected {
+            self.selected = new_index;
+            if let Some(issue) = self.issues.get(self.selected) {
+                match fetch_issue_detail(&issue.identifier).await {
+                    Ok(detail) => {
+                        self.detail = detail;
+                        self.status = format!("Selected {}", issue.identifier);
+                    }
+                    Err(err) => {
+                        self.detail = None;
+                        self.status = format!("Error loading detail: {err}");
+                    }
+                }
             }
         }
     }
 }
 
-async fn fetch_issue_summaries() -> Result<Vec<String>> {
+async fn fetch_issue_summaries() -> Result<(
+    Vec<linear_core::graphql::IssueSummary>,
+    Option<linear_core::graphql::IssueDetail>,
+)> {
     let session = match load_session(DEFAULT_PROFILE).await {
         Ok(session) => session,
         Err(err) => return Err(anyhow!("authentication error: {err}")),
@@ -111,10 +147,21 @@ async fn fetch_issue_summaries() -> Result<Vec<String>> {
         .await
         .context("failed to fetch issues")?;
 
-    Ok(issues
-        .into_iter()
-        .map(|issue| format!("{} — {}", issue.identifier, issue.title))
-        .collect())
+    let detail = if let Some(first) = issues.get(0) {
+        fetch_issue_detail(&first.identifier).await?
+    } else {
+        None
+    };
+
+    Ok((issues, detail))
+}
+
+async fn fetch_issue_detail(key: &str) -> Result<Option<linear_core::graphql::IssueDetail>> {
+    let session = load_session(DEFAULT_PROFILE).await?;
+    let client =
+        LinearGraphqlClient::from_session(&session).context("failed to build GraphQL client")?;
+    let service = IssueService::new(client);
+    Ok(service.get_by_key(key).await.ok())
 }
 
 async fn load_session(profile: &str) -> Result<linear_core::auth::AuthSession> {
@@ -149,7 +196,14 @@ fn build_oauth_config() -> Result<OAuthConfig> {
 fn render_app(frame: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(3)].as_ref())
+        .constraints(
+            [
+                Constraint::Percentage(60),
+                Constraint::Percentage(40),
+                Constraint::Length(2),
+            ]
+            .as_ref(),
+        )
         .split(frame.size());
 
     let items: Vec<ListItem> = if app.issues.is_empty() {
@@ -157,13 +211,45 @@ fn render_app(frame: &mut Frame, app: &App) {
     } else {
         app.issues
             .iter()
-            .map(|issue| ListItem::new(Line::from(issue.clone())))
+            .map(|issue| {
+                let line = format!("{}  {}", issue.identifier, issue.title);
+                ListItem::new(Line::from(line))
+            })
             .collect()
     };
 
-    let list = List::new(items).block(Block::default().title("Issues").borders(Borders::ALL));
-    frame.render_widget(list, chunks[0]);
+    let mut list_state = ratatui::widgets::ListState::default();
+    if !app.issues.is_empty() {
+        list_state.select(Some(app.selected));
+    }
+
+    let list = List::new(items)
+        .block(Block::default().title("Issues").borders(Borders::ALL))
+        .highlight_style(Style::default().fg(Color::Yellow));
+    frame.render_stateful_widget(list, chunks[0], &mut list_state);
+
+    let detail_block = Block::default().title("Details").borders(Borders::ALL);
+    let detail_text = if let Some(issue) = &app.detail {
+        format!(
+            "{}
+
+State: {}
+Priority: {}
+Updated: {}",
+            issue.description.as_deref().unwrap_or("(no description)"),
+            issue.state.as_ref().map(|s| s.name.as_str()).unwrap_or("-"),
+            issue
+                .priority
+                .map(|p| p.to_string())
+                .unwrap_or_else(|| "-".into()),
+            issue.updated_at.to_rfc3339()
+        )
+    } else {
+        "Select an issue to view details".into()
+    };
+    let detail = Paragraph::new(detail_text).block(detail_block);
+    frame.render_widget(detail, chunks[1]);
 
     let status = Paragraph::new(app.status.clone()).style(Style::default().fg(Color::Cyan));
-    frame.render_widget(status, chunks[1]);
+    frame.render_widget(status, chunks[2]);
 }
