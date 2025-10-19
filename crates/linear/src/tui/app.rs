@@ -53,6 +53,8 @@ pub struct App {
     project_filter_cache: HashMap<Option<String>, Vec<ProjectSummary>>,
     status_tab: StatusTab,
     automation_task: Option<JoinHandle<AutomationOutcome>>,
+    detail_tab: DetailTab,
+    detail_tab_memory: HashMap<String, DetailTab>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -86,6 +88,34 @@ impl StatusTab {
             StatusTab::Todo => "Todo",
             StatusTab::Doing => "Doing",
             StatusTab::Done => "Done",
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DetailTab {
+    Summary,
+    Description,
+    Activity,
+    SubIssues,
+}
+
+impl DetailTab {
+    pub const fn all() -> [DetailTab; 4] {
+        [
+            DetailTab::Summary,
+            DetailTab::Description,
+            DetailTab::Activity,
+            DetailTab::SubIssues,
+        ]
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            DetailTab::Summary => "Summary",
+            DetailTab::Description => "Description",
+            DetailTab::Activity => "Activity",
+            DetailTab::SubIssues => "Sub-issues",
         }
     }
 }
@@ -134,6 +164,8 @@ impl App {
             project_filter_cache: HashMap::new(),
             status_tab: StatusTab::All,
             automation_task: None,
+            detail_tab: DetailTab::Summary,
+            detail_tab_memory: HashMap::new(),
         }
     }
 
@@ -292,6 +324,51 @@ impl App {
 
     pub(crate) fn detail(&self) -> Option<&IssueDetail> {
         self.detail.as_ref()
+    }
+
+    pub(crate) fn detail_tab(&self) -> DetailTab {
+        self.detail_tab
+    }
+
+    fn remembered_detail_tab(&self, identifier: &str) -> DetailTab {
+        let key = identifier.to_ascii_uppercase();
+        self.detail_tab_memory
+            .get(&key)
+            .copied()
+            .unwrap_or(DetailTab::Summary)
+    }
+
+    fn persist_detail_tab_selection(&mut self) {
+        if let Some(issue) = self.selected_issue() {
+            self.detail_tab_memory
+                .insert(issue.identifier.to_ascii_uppercase(), self.detail_tab);
+        }
+    }
+
+    fn has_activity_data(&self) -> bool {
+        self.detail
+            .as_ref()
+            .map(|detail| {
+                detail
+                    .history
+                    .as_ref()
+                    .map(|history| !history.nodes.is_empty())
+                    .unwrap_or(false)
+                    || detail
+                        .comments
+                        .as_ref()
+                        .map(|comments| !comments.nodes.is_empty())
+                        .unwrap_or(false)
+            })
+            .unwrap_or(false)
+    }
+
+    fn has_sub_issue_data(&self) -> bool {
+        self.detail
+            .as_ref()
+            .and_then(|detail| detail.sub_issues.as_ref())
+            .map(|connection| !connection.nodes.is_empty())
+            .unwrap_or(false)
     }
 
     pub(crate) fn teams(&self) -> &[TeamSummary] {
@@ -649,6 +726,7 @@ impl App {
             let key = issue.identifier.clone();
             self.detail = None;
             self.abort_pending();
+            self.detail_tab = self.remembered_detail_tab(&key);
             self.set_spinner_status(format!("Loading {}...", key));
             self.queue_detail_fetch(key);
         }
@@ -976,6 +1054,30 @@ impl App {
         StatusTab::All
     }
 
+    pub(crate) fn cycle_detail_tab(&mut self, delta: isize) {
+        let tabs = DetailTab::all();
+        let total = tabs.len() as isize;
+        if total == 0 {
+            return;
+        }
+        let current = tabs.iter().position(|t| *t == self.detail_tab).unwrap_or(0) as isize;
+        let mut next = current + delta;
+        next = (next % total + total) % total;
+        self.detail_tab = tabs[next as usize];
+        self.persist_detail_tab_selection();
+        self.set_status(format!("Detail tab: {}", self.detail_tab.label()), false);
+    }
+
+    pub(crate) fn set_detail_tab(&mut self, tab: DetailTab) {
+        if self.detail_tab == tab {
+            self.set_status(format!("Detail tab already {}", tab.label()), false);
+        } else {
+            self.detail_tab = tab;
+            self.persist_detail_tab_selection();
+            self.set_status(format!("Detail tab: {}", tab.label()), false);
+        }
+    }
+
     pub(crate) async fn move_state_selection(&mut self, delta: isize) {
         self.ensure_states().await;
         if self.states.is_empty() {
@@ -1262,6 +1364,20 @@ impl App {
                 lines.push(Line::from("status prev"));
             }
             lines
+        } else if let Some(rest) = input.strip_prefix("detail ") {
+            let term = rest.trim().to_ascii_lowercase();
+            let mut lines = Vec::new();
+            for tab in DetailTab::all() {
+                let label = tab.label().to_ascii_lowercase();
+                if term.is_empty() || label.starts_with(&term) {
+                    lines.push(Line::from(format!("detail {}", label)));
+                }
+            }
+            if term.is_empty() || matches!(term.as_str(), "next" | "prev") {
+                lines.push(Line::from("detail next"));
+                lines.push(Line::from("detail prev"));
+            }
+            lines
         } else if let Some(rest) = input.strip_prefix("contains ") {
             let term = rest.trim();
             if term.is_empty() {
@@ -1320,8 +1436,18 @@ impl App {
                 lines.push(Line::from("page <number>"));
             }
             lines
+        } else if !input.is_empty()
+            && self.has_activity_data()
+            && "activity".starts_with(input.as_str())
+        {
+            vec![Line::from("activity")]
+        } else if !input.is_empty()
+            && self.has_sub_issue_data()
+            && ("sub-issues".starts_with(input.as_str()) || "subissues".starts_with(input.as_str()))
+        {
+            vec![Line::from("sub-issues")]
         } else {
-            vec![
+            let mut lines = vec![
                 Line::from("team <key>"),
                 Line::from("state <name>"),
                 Line::from("project <name>"),
@@ -1348,7 +1474,14 @@ impl App {
                 Line::from("clear"),
                 Line::from("reload"),
                 Line::from("help"),
-            ]
+            ];
+            if self.has_activity_data() {
+                lines.push(Line::from("activity"));
+            }
+            if self.has_sub_issue_data() {
+                lines.push(Line::from("sub-issues"));
+            }
+            lines
         }
     }
 
@@ -1416,6 +1549,22 @@ impl App {
             {
                 self.palette_history.push(cmd.to_string());
             }
+        }
+        if cmd.eq_ignore_ascii_case("activity") {
+            if self.has_activity_data() {
+                self.set_detail_tab(DetailTab::Activity);
+            } else {
+                self.set_status("Activity data not available for the current issue", false);
+            }
+            return;
+        }
+        if cmd.eq_ignore_ascii_case("sub-issues") || cmd.eq_ignore_ascii_case("subissues") {
+            if self.has_sub_issue_data() {
+                self.set_detail_tab(DetailTab::SubIssues);
+            } else {
+                self.set_status("No sub-issues available for the current issue", false);
+            }
+            return;
         }
         if let Some(team_key) = cmd.strip_prefix("team ") {
             let team_key = team_key.trim();
@@ -1498,6 +1647,33 @@ impl App {
                 self.set_status_tab(StatusTab::All).await;
             } else {
                 self.set_status("Usage: status <todo|doing|done|all|next|prev>", false);
+            }
+            return;
+        }
+
+        if let Some(detail_arg) = cmd.strip_prefix("detail ") {
+            let detail_arg = detail_arg.trim();
+            if detail_arg.eq_ignore_ascii_case("next") {
+                self.cycle_detail_tab(1);
+            } else if detail_arg.eq_ignore_ascii_case("prev")
+                || detail_arg.eq_ignore_ascii_case("previous")
+            {
+                self.cycle_detail_tab(-1);
+            } else if detail_arg.eq_ignore_ascii_case("summary") {
+                self.set_detail_tab(DetailTab::Summary);
+            } else if detail_arg.eq_ignore_ascii_case("description") {
+                self.set_detail_tab(DetailTab::Description);
+            } else if detail_arg.eq_ignore_ascii_case("activity") {
+                self.set_detail_tab(DetailTab::Activity);
+            } else if detail_arg.eq_ignore_ascii_case("sub-issues")
+                || detail_arg.eq_ignore_ascii_case("subissues")
+            {
+                self.set_detail_tab(DetailTab::SubIssues);
+            } else {
+                self.set_status(
+                    "Usage: detail <summary|description|activity|sub-issues|next|prev>",
+                    false,
+                );
             }
             return;
         }

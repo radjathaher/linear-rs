@@ -3,6 +3,8 @@
 ## Philosophy
 - Issue-first workspace; teams/projects/status act as optional filters.
 - Detail pane always visible, shows sub-issue tree and actions.
+- Activity tab merges comments and change history into a timeline grouped by day.
+- Sub-issues tab renders a nested tree for quick parent/child navigation.
 - Project creation/edit launched on demand (modal) without leaving issues context.
 - Automation agent runs Linear CLI commands from active issue/project (`Ctrl+Enter`).
 
@@ -14,7 +16,7 @@
 │ Team List (filterable)                   │ Issues List (team+project+status filtered, sorted)       │
 │ Project List (per team)                  │ ├─ Inline sort row: priority | assignee | updated         │
 │ Status Overview                          │ └─ Preview summary for highlighted issue                 │
-│ Saved Filters                             │ Details Pane (tabs: Summary | Description | Activity | Sub-issues) │
+│ Saved Filters                             │ Details Pane (tabs: Summary | Description | Activity timeline | Sub-issues tree) │
 ├────────────────────────────── Bottom Strip ─────────────────────────────────────────────────────────┤
 │ Active Filters | Mode Indicator | Status Spinner | Keymap Legend / Palette Prompt                   │
 └────────────────────────────────────────────────────────────────────────────────────────────────────┘
@@ -32,7 +34,7 @@
 - Project filter: `p` next, `Shift+p` previous, `Ctrl+p` clear, `o` toggles the project overlay.
 - Status tabs: `1` Todo, `2` Doing, `3` Done, `4` All, `Ctrl+[` / `Ctrl+]` cycle tabs.
 - Issues list: `j/k` move, `Enter` or palette `view` commands open details, `a` assign, `s` change state, `l` labels, `.` more actions.
-- Detail pane: `Tab` cycles Summary/Description/Activity/Sub-issues; `x` expand sub-issue tree (planned refinement).
+- Detail pane: `.` next tab, `,` previous tab; palette `detail <tab>` plus shorthands `activity` / `sub-issues` jump directly when data is loaded.
 - CLI automation: `Ctrl+Enter` triggers the Linear CLI helper stub for the focused issue.
 - Global: `:` command palette, `?` keymap overlay, `R` refresh, `c` clear filters, `y` cycles overlay.
 
@@ -66,6 +68,24 @@
 ```
 1. Apply team filter, open cycles overlay (`y`).
 2. Inspect timeline, close (`Esc`), continue issue triage.
+
+### Review Activity Timeline
+```
+[Issue Detail] --activity--> Grouped Activity Timeline
+    -> Scroll history/comments -> return with other tabs
+```
+1. Use palette `activity` (or `detail activity`) after the issue detail loads.
+2. Activity tab stitches change history and comments, grouped by calendar day with `├─/└─` connectors.
+3. Switching away remembers the last tab per issue, so returning to the issue keeps the activity view.
+
+### Inspect Sub-issue Tree
+```
+[Issue Detail] --sub-issues--> Nested Tree View
+    -> Review children inline -> jump back with Summary/Description
+```
+1. Use palette `sub-issues` (or `detail sub-issues`) to jump directly into the tree.
+2. Tree rows include identifier, title, state, assignee, and priority; children render recursively beneath parents.
+3. Tab persistence keeps the sub-issue tree active the next time the issue is selected.
 
 ## Structure & Files
 - `tui/app.rs`: application state, filter cache, palette/overlay orchestration.

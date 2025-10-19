@@ -6,12 +6,13 @@
 - Read-only overlays for projects (`o`), cycles (`y`), and help (`?`).
 - Command palette with completion for `team`, `state`, `project`, `status`, paging, and issue navigation commands.
 - CLI automation trigger (`Ctrl+Enter`) that executes `linear issue view <key>` using the active profile and surfaces completion status in the UI.
+- Detail Activity tab merges comments and history into a grouped timeline; Sub-issues tab renders nested trees with state/assignee/priority context.
 
 ## Deferred / Out of Scope (Future Work)
 - Creating or editing projects/issues directly inside the TUI (modal forms, quick editors).
 - Bulk actions, label/assignee pickers, or arbitrary CLI command execution.
 - Persistent user preferences (custom keymap, saved column widths) and multi-session state sync.
-- Rich sub-issue visualization and inline timelines/activity feeds beyond current summaries.
+- Timeline filtering, inline editing of activity entries, and sub-issue mutations remain out of scope.
 - Offline caching, speculative writes, or multi-account switching inside a single session.
 
 ## Reference Notes
