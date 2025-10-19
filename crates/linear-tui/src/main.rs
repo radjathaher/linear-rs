@@ -81,9 +81,9 @@ async fn run_app<B: ratatui::backend::Backend>(
                         KeyCode::Up => {
                             app.recall_palette_history(-1);
                         }
-                        KeyCode::Down => {
-                            app.recall_palette_history(1);
-                        }
+                    KeyCode::Down => {
+                        app.recall_palette_history(1);
+                    }
                         KeyCode::Char(c) => {
                             app.palette_input.push(c);
                         }
@@ -619,7 +619,27 @@ Updated: {}",
     if app.palette_active {
         let prompt = Paragraph::new(format!(":{}", app.palette_input))
             .style(Style::default().fg(Color::Yellow));
+        let mut history_lines: Vec<Line> = Vec::new();
+        for entry in app.palette_history.iter().rev().take(3) {
+            history_lines.push(Line::from(entry.as_str()));
+        }
+        let history = Paragraph::new(history_lines.clone())
+            .block(Block::default().title("History").borders(Borders::NONE))
+            .style(Style::default().fg(Color::DarkGray));
         frame.render_widget(prompt, help_chunks[1]);
+        if !history_lines.is_empty() {
+            let history_height = history_lines.len() as u16;
+            let history_area = ratatui::layout::Rect {
+                x: help_chunks[1].x,
+                y: help_chunks[1]
+                    .y
+                    .saturating_sub(history_height)
+                    .max(0),
+                width: help_chunks[1].width,
+                height: history_height,
+            };
+            frame.render_widget(history, history_area);
+        }
     }
 }
 
