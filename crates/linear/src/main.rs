@@ -108,7 +108,7 @@ struct IssueListArgs {
     /// Filter by team id (if known)
     #[arg(long = "team-id")]
     team_id: Option<String>,
-    /// Filter by team key/slug/id (resolved automatically)
+    /// Filter by team key/name/id (resolved automatically)
     #[arg(long = "team")]
     team: Option<String>,
     /// Filter by state id
@@ -148,7 +148,7 @@ struct IssueCreateArgs {
     /// Profile name for stored credentials
     #[arg(long, default_value = DEFAULT_PROFILE)]
     profile: String,
-    /// Team key/slug/id for the issue (resolved automatically)
+    /// Team key/name/id for the issue (resolved automatically)
     #[arg(long = "team", required_unless_present = "team-id")]
     team: Option<String>,
     /// Explicit team id for the issue
@@ -202,7 +202,7 @@ struct StateListArgs {
     /// Profile name for stored credentials
     #[arg(long, default_value = DEFAULT_PROFILE)]
     profile: String,
-    /// Team identifier (key, slug, or id)
+    /// Team identifier (key, name, or id)
     #[arg(long = "team")]
     team: String,
     /// Output raw JSON
@@ -710,14 +710,13 @@ fn truncate(value: &str, max_len: usize) -> String {
 }
 
 fn render_team_list(teams: &[TeamSummary]) {
-    println!("{:<8} {:<25} {:<25} {:<36}", "KEY", "NAME", "SLUG", "ID");
-    println!("{}", "-".repeat(96));
+    println!("{:<8} {:<32} {:<36}", "KEY", "NAME", "ID");
+    println!("{}", "-".repeat(80));
     for team in teams {
         println!(
-            "{:<8} {:<25} {:<25} {:<36}",
+            "{:<8} {:<32} {:<36}",
             team.key,
-            truncate(&team.name, 25),
-            truncate(team.slug_id.as_deref().unwrap_or("-"), 25),
+            truncate(&team.name, 32),
             truncate(&team.id, 36)
         );
     }

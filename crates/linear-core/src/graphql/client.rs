@@ -122,7 +122,6 @@ impl LinearGraphqlClient {
                         id
                         name
                         key
-                        slugId
                     }
                 }
             }
@@ -274,7 +273,7 @@ impl LinearGraphqlClient {
     pub async fn issue_by_key(&self, key: &str) -> GraphqlResult<IssueDetail> {
         #[derive(Serialize)]
         struct Variables<'a> {
-            key: &'a str,
+            id: &'a str,
         }
 
         #[derive(Serialize)]
@@ -283,37 +282,35 @@ impl LinearGraphqlClient {
             variables: Variables<'a>,
         }
 
-        #[derive(Deserialize)]
-        struct IssueEnvelope {
-            issues: IssueConnection<IssueDetail>,
-        }
-
         const QUERY: &str = r#"
-            query IssueByKey($key: String!) {
-                issues(first: 1, filter: { identifier: { eq: $key } }) {
-                    nodes {
-                        id
-                        identifier
-                        title
-                        description
-                        url
-                        priority
-                        createdAt
-                        updatedAt
-                        state { id name type }
-                        assignee { id name displayName }
-                        labels(first: 20) {
-                            nodes { id name color }
-                        }
+            query IssueByKey($id: String!) {
+                issue(id: $id) {
+                    id
+                    identifier
+                    title
+                    description
+                    url
+                    priority
+                    createdAt
+                    updatedAt
+                    state { id name type }
+                    assignee { id name displayName }
+                    labels(first: 20) {
+                        nodes { id name color }
                     }
                 }
             }
         "#;
 
+        #[derive(Deserialize)]
+        struct IssueEnvelope {
+            issue: Option<IssueDetail>,
+        }
+
         let response: GraphqlEnvelope<IssueEnvelope> = self
             .post(Request {
                 query: QUERY,
-                variables: Variables { key },
+                variables: Variables { id: key },
             })
             .await?;
 
@@ -321,12 +318,10 @@ impl LinearGraphqlClient {
             return Err(GraphqlError::ResponseErrors(errors));
         }
 
-        let data = response
+        response
             .data
-            .and_then(|payload| payload.issues.nodes.into_iter().next())
-            .ok_or(GraphqlError::NotFound)?;
-
-        Ok(data)
+            .and_then(|payload| payload.issue)
+            .ok_or(GraphqlError::NotFound)
     }
 
     /// Create a new issue using the Linear GraphQL API.
@@ -530,7 +525,6 @@ pub struct TeamSummary {
     pub id: String,
     pub name: String,
     pub key: String,
-    pub slug_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -592,11 +586,6 @@ pub struct GraphqlResponseError {
     pub message: String,
     #[serde(default)]
     pub path: Option<Vec<String>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct IssueConnection<T> {
-    nodes: Vec<T>,
 }
 
 #[derive(Debug, Deserialize)]

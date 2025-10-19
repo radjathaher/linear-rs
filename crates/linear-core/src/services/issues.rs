@@ -66,11 +66,7 @@ impl IssueService {
             .find(|team| {
                 team.id == identifier
                     || team.key.eq_ignore_ascii_case(identifier)
-                    || team
-                        .slug_id
-                        .as_ref()
-                        .map(|slug| slug.eq_ignore_ascii_case(identifier))
-                        .unwrap_or(false)
+                    || team.name.eq_ignore_ascii_case(identifier)
             })
             .map(|team| team.id))
     }
@@ -95,11 +91,7 @@ impl IssueService {
         if let Some(team) = teams.into_iter().find(|team| {
             team.id == team_identifier
                 || team.key.eq_ignore_ascii_case(team_identifier)
-                || team
-                    .slug_id
-                    .as_ref()
-                    .map(|slug| slug.eq_ignore_ascii_case(team_identifier))
-                    .unwrap_or(false)
+                || team.name.eq_ignore_ascii_case(team_identifier)
         }) {
             let states = self.workflow_states(&team.id).await?;
             Ok(Some((team, states)))
