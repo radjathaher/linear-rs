@@ -2,6 +2,7 @@
 
 pub mod auth;
 pub mod config;
+pub mod graphql;
 
 /// Entry point used by early scaffolding binaries until real initialization exists.
 pub fn init() -> anyhow::Result<()> {

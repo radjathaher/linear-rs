@@ -6,6 +6,7 @@ use linear_core::auth::{
     AuthFlow, AuthManager, CredentialStore, FileCredentialStore, FlowPreference, OAuthClient,
     OAuthConfig,
 };
+use linear_core::graphql::{LinearGraphqlClient, Viewer};
 use tokio::task;
 use url::Url;
 
@@ -24,6 +25,9 @@ enum Commands {
     /// Authentication related commands
     #[command(subcommand)]
     Auth(AuthCommand),
+    /// User account details
+    #[command(subcommand)]
+    User(UserCommand),
 }
 
 #[derive(Subcommand, Debug)]
@@ -32,6 +36,22 @@ enum AuthCommand {
     Login(LoginArgs),
     /// Forget stored credentials for a profile
     Logout(LogoutArgs),
+}
+
+#[derive(Subcommand, Debug)]
+enum UserCommand {
+    /// Show the current authenticated user (viewer)
+    Me(MeArgs),
+}
+
+#[derive(Args, Debug)]
+struct MeArgs {
+    /// Profile name for stored credentials
+    #[arg(long, default_value = DEFAULT_PROFILE)]
+    profile: String,
+    /// Output raw JSON
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -73,6 +93,9 @@ async fn main() -> Result<()> {
         Commands::Auth(cmd) => match cmd {
             AuthCommand::Login(args) => auth_login(args).await?,
             AuthCommand::Logout(args) => auth_logout(args).await?,
+        },
+        Commands::User(cmd) => match cmd {
+            UserCommand::Me(args) => user_me(args).await?,
         },
     }
     Ok(())
@@ -231,4 +254,64 @@ async fn prompt_for_code() -> Result<String, linear_core::auth::AuthError> {
 fn print_authorization_url(url: &Url) -> Result<(), linear_core::auth::AuthError> {
     println!("\nAuthorize the application by visiting:\n  {}\n", url);
     Ok(())
+}
+
+async fn user_me(args: MeArgs) -> Result<()> {
+    let session = load_session(&args.profile).await?;
+    let client =
+        LinearGraphqlClient::from_session(&session).context("failed to build GraphQL client")?;
+    let viewer = client.viewer().await.context("GraphQL request failed")?;
+
+    if args.json {
+        let json = serde_json::to_string_pretty(&viewer)?;
+        println!("{}", json);
+    } else {
+        render_viewer(&viewer);
+    }
+
+    Ok(())
+}
+
+async fn load_session(profile: &str) -> Result<linear_core::auth::AuthSession> {
+    let store = FileCredentialStore::with_default_locator()
+        .context("unable to initialise credential store")?;
+
+    match build_oauth_config() {
+        Ok(config) => {
+            let oauth = OAuthClient::new(config).context("failed to build OAuth client")?;
+            let manager = AuthManager::new(store, oauth, profile);
+            manager.ensure_fresh_session().await?.ok_or_else(|| {
+                anyhow!(
+                    "no credentials stored for profile '{}'; run `linear auth login`",
+                    profile
+                )
+            })
+        }
+        Err(_) => store
+            .load(profile)
+            .map_err(anyhow::Error::from)?
+            .ok_or_else(|| {
+                anyhow!(
+                    "no credentials stored for profile '{}'; run `linear auth login`",
+                    profile
+                )
+            }),
+    }
+}
+
+fn render_viewer(viewer: &Viewer) {
+    println!("Viewer ID: {}", viewer.id);
+    if let Some(name) = &viewer.name {
+        println!("Name      : {}", name);
+    }
+    if let Some(display) = &viewer.display_name {
+        println!("Display   : {}", display);
+    }
+    if let Some(handle) = &viewer.handle {
+        println!("Handle    : @{}", handle);
+    }
+    if let Some(email) = &viewer.email {
+        println!("Email     : {}", email);
+    }
+    println!("Created   : {}", viewer.created_at.to_rfc3339());
 }
